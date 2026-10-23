@@ -1,6 +1,8 @@
 use openh264::{
     OpenH264API,
-    encoder::{BitRate, Encoder as H264Encoder, EncoderConfig, FrameRate, UsageType},
+    encoder::{
+        BitRate, Encoder as H264Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType,
+    },
     formats::{BgraSliceU8, YUVBuffer},
 };
 
@@ -18,7 +20,8 @@ impl Encoder {
             .max_frame_rate(FrameRate::from_hz(60.0))
             .bitrate(BitRate::from_bps(8_000_000))
             .adaptive_quantization(false)
-            .background_detection(false);
+            .background_detection(false)
+            .intra_frame_period(IntraFramePeriod::from_num_frames(60));
         let inner = H264Encoder::with_api_config(OpenH264API::from_source(), config)
             .map_err(|e| Error::Encode(e.to_string()))?;
         Ok(Self { inner })

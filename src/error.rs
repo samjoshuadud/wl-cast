@@ -14,4 +14,6 @@ pub enum Error {
     CaptureFailed,
     #[error("H.264 encoding failed: {0}")]
     Encode(String),
+    #[error("could not resolve address")]
+    InvalidAddress,
 }

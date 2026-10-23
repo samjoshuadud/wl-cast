@@ -12,3 +12,5 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Project setup: crate, license, README, CI.
 - `Capture`: capture frames from a monitor using ext-image-copy-capture.
 - `Encoder`: encode frames to H.264 in software with OpenH264.
+- `RtpSender`: stream H.264 over RTP/UDP, with an SDP file for players.
+- `Frame::captured_at`: capture time, used for playback timing.

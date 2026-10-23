@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     os::{fd::AsFd, unix::fs::FileExt},
+    time::Instant,
 };
 
 use rustix::fs::{MemfdFlags, memfd_create};
@@ -138,6 +139,7 @@ impl Capture {
             width: self.width,
             height: self.height,
             data,
+            captured_at: Instant::now(),
         })
     }
 }
