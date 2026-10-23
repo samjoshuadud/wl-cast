@@ -10,3 +10,4 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Project setup: crate, license, README, CI.
+- `Capture`: capture frames from a monitor using ext-image-copy-capture.

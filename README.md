@@ -2,7 +2,7 @@
 
 Screen capture, encoding and input for Wayland compositors, as a Rust library.
 
-Status: early development. Nothing works yet.
+Status: early development. Screen capture works on Hyprland.
 
 ## Goal
 
@@ -17,7 +17,7 @@ One library that apps and compositors can use to:
 
 | Compositor | Status |
 |---|---|
-| Hyprland | Planned (first target) |
+| Hyprland | Capture works |
 | Sway and other wlroots-based | Planned |
 | GNOME, KDE (via xdg-desktop-portal) | Planned |
 

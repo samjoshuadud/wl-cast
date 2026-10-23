@@ -1,1 +1,7 @@
-//! Screen capture, encoding and input for Wayland compositors.
+mod capture;
+mod error;
+mod frame;
+
+pub use capture::Capture;
+pub use error::Error;
+pub use frame::Frame;
