@@ -84,11 +84,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for monitor in &state.monitors {
         println!(
-            "{} {}x{} @ {}Hz scale {}",
+            "{} {}x{} @ {:.0}Hz scale {}",
             monitor.name,
             monitor.width,
             monitor.height,
-            monitor.refresh_mhz / 1000,
+            monitor.refresh_mhz as f64 / 1000.0,
             monitor.scale
         );
     }
