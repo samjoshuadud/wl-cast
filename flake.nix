@@ -14,6 +14,7 @@
           clippy
           rust-analyzer
           wayland-utils
+          ffmpeg
         ];
       };
     };

@@ -12,4 +12,6 @@ pub enum Error {
     OutputNotFound(usize),
     #[error("frame capture failed")]
     CaptureFailed,
+    #[error("H.264 encoding failed: {0}")]
+    Encode(String),
 }
