@@ -27,7 +27,7 @@ impl Encoder {
     /// Returns the frame as H.264 bytes, ready to append to a `.h264` file or stream.
     pub fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
         let size = (frame.width as usize, frame.height as usize);
-        let yuv = YUVBuffer::from_rgb_source(BgraSliceU8::new(&frame.data, size));
+        let yuv = YUVBuffer::from_bgra8_source(BgraSliceU8::new(&frame.data, size));
         let bitstream = self
             .inner
             .encode(&yuv)
