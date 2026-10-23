@@ -192,10 +192,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pixel[3] = 255;
     }
 
+    let path = "captures/frame.png";
+    std::fs::create_dir_all("captures")?;
     image::RgbaImage::from_raw(width, height, pixels)
         .ok_or("buffer size mismatch")?
-        .save("frame.png")?;
-    println!("saved frame.png ({width}x{height})");
+        .save(path)?;
+    println!("saved {path} ({width}x{height})");
 
     Ok(())
 }
