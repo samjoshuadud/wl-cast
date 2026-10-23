@@ -14,7 +14,12 @@ impl Dispatch<WlRegistry, ()> for State {
         _conn: &Connection,
         _qhandle: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             println!("{name:>3} {interface} v{version}");
         }
     }
@@ -29,5 +34,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     queue.roundtrip(&mut State)?;
 
     Ok(())
-
 }
