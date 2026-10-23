@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     os::{fd::AsFd, unix::fs::FileExt},
+    time::Instant,
 };
 
 use rustix::fs::{MemfdFlags, memfd_create};
@@ -116,6 +117,8 @@ delegate_noop!(State: ExtOutputImageCaptureSourceManagerV1);
 delegate_noop!(State: ExtImageCaptureSourceV1);
 delegate_noop!(State: ExtImageCopyCaptureManagerV1);
 
+const FRAMES: u32 = 100;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::connect_to_env()?;
     let mut queue = conn.new_event_queue::<State>();
@@ -138,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source = source_manager.create_source(output, &qh, ());
     let session = capture_manager.create_session(
         &source,
-        ext_image_copy_capture_manager_v1::Options::empty(),
+        ext_image_copy_capture_manager_v1::Options::PaintCursors,
         &qh,
         (),
     );
@@ -172,17 +175,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (),
     );
 
-    let frame = session.create_frame(&qh, ());
-    frame.attach_buffer(&buffer);
-    frame.damage_buffer(0, 0, width as i32, height as i32);
-    frame.capture();
+    println!("capturing {FRAMES} frames, move the mouse or play a video...");
+    let start = Instant::now();
 
-    while !state.frame_ready && !state.frame_failed {
-        queue.blocking_dispatch(&mut state)?;
+    for _ in 0..FRAMES {
+        state.frame_ready = false;
+
+        let frame = session.create_frame(&qh, ());
+        frame.attach_buffer(&buffer);
+        frame.damage_buffer(0, 0, width as i32, height as i32);
+        frame.capture();
+
+        while !state.frame_ready && !state.frame_failed {
+            queue.blocking_dispatch(&mut state)?;
+        }
+        frame.destroy();
+
+        if state.frame_failed {
+            return Err("capture failed".into());
+        }
     }
-    if state.frame_failed {
-        return Err("capture failed".into());
-    }
+
+    let seconds = start.elapsed().as_secs_f64();
+    println!(
+        "{FRAMES} frames in {seconds:.2}s = {:.1} fps",
+        FRAMES as f64 / seconds
+    );
 
     let mut pixels = vec![0u8; size as usize];
     file.read_exact_at(&mut pixels, 0)?;
