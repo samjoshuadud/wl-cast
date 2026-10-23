@@ -9,3 +9,4 @@ keywords = ["wayland", "screencast", "screen-capture", "hyprland", "remote-deskt
 categories = ["multimedia::video", "os::linux-apis"]
 
 [dependencies]
+wayland-client = "0.31.15"
