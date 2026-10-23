@@ -2,7 +2,7 @@
 
 Screen capture, encoding and input for Wayland compositors, as a Rust library.
 
-Status: early development. Screen capture, H.264 encoding, RTP streaming and mouse input work on Hyprland.
+Status: early development. Screen capture, H.264 encoding, RTP streaming, mouse and keyboard input work on Hyprland.
 
 ## Goal
 
@@ -17,7 +17,7 @@ One library that apps and compositors can use to:
 
 | Compositor | Status |
 |---|---|
-| Hyprland | Capture, encoding, streaming and mouse work |
+| Hyprland | Capture, encoding, streaming, mouse and keyboard work |
 | Sway and other wlroots-based | Planned |
 | GNOME, KDE (via xdg-desktop-portal) | Planned |
 

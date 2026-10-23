@@ -15,6 +15,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `RtpSender`: stream H.264 over RTP/UDP, with an SDP file for players.
 - `Frame::captured_at`: capture time, used for playback timing.
 - `Input`: move, click and scroll the mouse with wlr-virtual-pointer.
+- `Input::key`: press and release keys with virtual-keyboard, using the compositor's own keymap.
 - `ffmpeg` feature: GPU encoding with VA-API (Intel, AMD) or NVENC (Nvidia), falling back to OpenH264.
 
 ### Changed
