@@ -6,7 +6,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "127.0.0.1:5004".to_string());
 
     let mut capture = Capture::new(0)?;
-    let mut encoder = Encoder::new()?;
+    let (width, height) = capture.size();
+    let mut encoder = Encoder::new(width, height)?;
+    println!("encoder: {}", encoder.name());
     let mut sender = RtpSender::new(destination.as_str())?;
 
     std::fs::create_dir_all("captures")?;

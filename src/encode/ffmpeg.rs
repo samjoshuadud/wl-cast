@@ -1,0 +1,201 @@
+use std::ptr;
+
+use ffmpeg_next::{
+    self as ffmpeg, Dictionary, Packet, Rational, codec, encoder, ffi, format::Pixel, frame,
+    software::scaling,
+};
+
+use crate::{Error, Frame};
+
+const CANDIDATES: [&str; 2] = ["h264_vaapi", "h264_nvenc"];
+
+pub(crate) struct HardwareEncoder {
+    name: &'static str,
+    encoder: encoder::Video,
+    scaler: scaling::Context,
+    bgrx: frame::Video,
+    nv12: frame::Video,
+    gpu_frames: Option<GpuFrames>,
+    pts: i64,
+}
+
+impl HardwareEncoder {
+    pub(crate) fn open_any(width: u32, height: u32) -> Option<Self> {
+        ffmpeg::init().ok()?;
+        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Fatal);
+        CANDIDATES
+            .into_iter()
+            .find_map(|name| Self::open(name, width, height).ok())
+    }
+
+    fn open(name: &'static str, width: u32, height: u32) -> Result<Self, Error> {
+        let codec = encoder::find_by_name(name).ok_or(Error::Unsupported("FFmpeg encoder"))?;
+        let mut video = codec::context::Context::new_with_codec(codec)
+            .encoder()
+            .video()
+            .map_err(ffmpeg_error)?;
+
+        video.set_width(width);
+        video.set_height(height);
+        video.set_time_base(Rational(1, 60));
+        video.set_frame_rate(Some(Rational(60, 1)));
+        video.set_bit_rate(8_000_000);
+        video.set_gop(60);
+        video.set_max_b_frames(0);
+
+        let gpu_frames = if name == "h264_vaapi" {
+            let gpu_frames = GpuFrames::new(width, height)?;
+            video.set_format(Pixel::VAAPI);
+            // SAFETY: `video` owns a valid codec context. av_buffer_ref returns a new reference
+            // that the context frees when it is closed.
+            unsafe { (*video.as_mut_ptr()).hw_frames_ctx = ffi::av_buffer_ref(gpu_frames.frames) };
+            Some(gpu_frames)
+        } else {
+            video.set_format(Pixel::NV12);
+            None
+        };
+
+        let mut options = Dictionary::new();
+        if name == "h264_vaapi" {
+            options.set("async_depth", "1");
+        }
+        if name == "h264_nvenc" {
+            options.set("preset", "p1");
+            options.set("tune", "ull");
+            options.set("delay", "0");
+        }
+
+        let encoder = video.open_as_with(codec, options).map_err(ffmpeg_error)?;
+        let scaler = scaling::Context::get(
+            Pixel::BGRZ,
+            width,
+            height,
+            Pixel::NV12,
+            width,
+            height,
+            scaling::Flags::FAST_BILINEAR,
+        )
+        .map_err(ffmpeg_error)?;
+
+        Ok(Self {
+            name,
+            encoder,
+            scaler,
+            bgrx: frame::Video::new(Pixel::BGRZ, width, height),
+            nv12: frame::Video::new(Pixel::NV12, width, height),
+            gpu_frames,
+            pts: 0,
+        })
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub(crate) fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
+        let row = frame.width as usize * 4;
+        let stride = self.bgrx.stride(0);
+        let plane = self.bgrx.data_mut(0);
+        for (y, src) in frame.data.chunks_exact(row).enumerate() {
+            plane[y * stride..y * stride + row].copy_from_slice(src);
+        }
+
+        self.scaler
+            .run(&self.bgrx, &mut self.nv12)
+            .map_err(ffmpeg_error)?;
+
+        let mut input = match &self.gpu_frames {
+            Some(gpu_frames) => gpu_frames.upload(&self.nv12)?,
+            None => self.nv12.clone(),
+        };
+        input.set_pts(Some(self.pts));
+        self.pts += 1;
+
+        self.encoder.send_frame(&input).map_err(ffmpeg_error)?;
+
+        let mut h264 = Vec::new();
+        let mut packet = Packet::empty();
+        while self.encoder.receive_packet(&mut packet).is_ok() {
+            h264.extend_from_slice(packet.data().unwrap_or_default());
+        }
+        Ok(h264)
+    }
+}
+
+struct GpuFrames {
+    device: *mut ffi::AVBufferRef,
+    frames: *mut ffi::AVBufferRef,
+}
+
+impl GpuFrames {
+    fn new(width: u32, height: u32) -> Result<Self, Error> {
+        let mut gpu = Self {
+            device: ptr::null_mut(),
+            frames: ptr::null_mut(),
+        };
+
+        // SAFETY: av_hwdevice_ctx_create writes a new device reference into `gpu.device`
+        // or leaves it null on failure. Drop frees whatever was created.
+        let ret = unsafe {
+            ffi::av_hwdevice_ctx_create(
+                &mut gpu.device,
+                ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+                ptr::null(),
+                ptr::null_mut(),
+                0,
+            )
+        };
+        if ret < 0 {
+            return Err(Error::Unsupported("VA-API device"));
+        }
+
+        // SAFETY: `gpu.device` is a valid device reference. The frames context data is an
+        // AVHWFramesContext that we fill in before av_hwframe_ctx_init.
+        unsafe {
+            gpu.frames = ffi::av_hwframe_ctx_alloc(gpu.device);
+            if gpu.frames.is_null() {
+                return Err(Error::Unsupported("VA-API frames"));
+            }
+            let ctx = (*gpu.frames).data as *mut ffi::AVHWFramesContext;
+            (*ctx).format = ffi::AVPixelFormat::AV_PIX_FMT_VAAPI;
+            (*ctx).sw_format = ffi::AVPixelFormat::AV_PIX_FMT_NV12;
+            (*ctx).width = width as i32;
+            (*ctx).height = height as i32;
+            (*ctx).initial_pool_size = 4;
+            if ffi::av_hwframe_ctx_init(gpu.frames) < 0 {
+                return Err(Error::Unsupported("VA-API frames"));
+            }
+        }
+
+        Ok(gpu)
+    }
+
+    fn upload(&self, nv12: &frame::Video) -> Result<frame::Video, Error> {
+        let mut gpu_frame = frame::Video::empty();
+        // SAFETY: `self.frames` is an initialized frames context and both frames are valid.
+        // av_hwframe_get_buffer allocates GPU memory owned by `gpu_frame`.
+        let ok = unsafe {
+            ffi::av_hwframe_get_buffer(self.frames, gpu_frame.as_mut_ptr(), 0) >= 0
+                && ffi::av_hwframe_transfer_data(gpu_frame.as_mut_ptr(), nv12.as_ptr(), 0) >= 0
+        };
+        if ok {
+            Ok(gpu_frame)
+        } else {
+            Err(Error::Encode("uploading frame to the GPU failed".into()))
+        }
+    }
+}
+
+impl Drop for GpuFrames {
+    fn drop(&mut self) {
+        // SAFETY: both fields are null or references we own. av_buffer_unref accepts null.
+        unsafe {
+            ffi::av_buffer_unref(&mut self.frames);
+            ffi::av_buffer_unref(&mut self.device);
+        }
+    }
+}
+
+fn ffmpeg_error(error: ffmpeg::Error) -> Error {
+    Error::Encode(error.to_string())
+}

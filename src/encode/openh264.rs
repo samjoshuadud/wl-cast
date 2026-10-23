@@ -8,13 +8,12 @@ use openh264::{
 
 use crate::{Error, Frame};
 
-/// Encodes frames to H.264 in software.
-pub struct Encoder {
+pub(crate) struct SoftwareEncoder {
     inner: H264Encoder,
 }
 
-impl Encoder {
-    pub fn new() -> Result<Self, Error> {
+impl SoftwareEncoder {
+    pub(crate) fn new() -> Result<Self, Error> {
         let config = EncoderConfig::new()
             .usage_type(UsageType::ScreenContentRealTime)
             .max_frame_rate(FrameRate::from_hz(60.0))
@@ -27,8 +26,7 @@ impl Encoder {
         Ok(Self { inner })
     }
 
-    /// Returns the frame as H.264 bytes, ready to append to a `.h264` file or stream.
-    pub fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
+    pub(crate) fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
         let size = (frame.width as usize, frame.height as usize);
         let yuv = YUVBuffer::from_bgra8_source(BgraSliceU8::new(&frame.data, size));
         let bitstream = self

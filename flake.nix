@@ -15,6 +15,10 @@
           rust-analyzer
           wayland-utils
           ffmpeg
+          ffmpeg.dev
+          pkg-config
+          rustPlatform.bindgenHook
+          libva-utils
         ];
       };
     };

@@ -6,7 +6,9 @@ const FRAMES: u32 = 300;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut capture = Capture::new(0)?;
-    let mut encoder = Encoder::new()?;
+    let (width, height) = capture.size();
+    let mut encoder = Encoder::new(width, height)?;
+    println!("encoder: {}", encoder.name());
 
     std::fs::create_dir_all("captures")?;
     let path = "captures/out.h264";

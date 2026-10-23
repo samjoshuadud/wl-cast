@@ -113,6 +113,10 @@ impl Capture {
         })
     }
 
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
     /// Waits for the next frame. Blocks while the screen is idle.
     pub fn next_frame(&mut self) -> Result<Frame, Error> {
         self.state.frame_ready = false;

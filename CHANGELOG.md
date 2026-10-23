@@ -14,3 +14,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `Encoder`: encode frames to H.264 in software with OpenH264.
 - `RtpSender`: stream H.264 over RTP/UDP, with an SDP file for players.
 - `Frame::captured_at`: capture time, used for playback timing.
+- `ffmpeg` feature: GPU encoding with VA-API (Intel, AMD) or NVENC (Nvidia), falling back to OpenH264.
+
+### Changed
+
+- `Encoder::new` now takes the frame width and height. Use `Capture::size`.

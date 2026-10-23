@@ -23,6 +23,18 @@ jobs:
       - run: cargo test
       - run: cargo doc --no-deps
 
+  ffmpeg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libclang-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --features ffmpeg
+      - run: cargo test --features ffmpeg
+
   msrv:
     runs-on: ubuntu-latest
     steps:
