@@ -96,6 +96,10 @@ The viewer sends one text line per event on a data channel named `input`.
 - The example web server is for demos. One slow client can stall it.
 - The software encoder is OpenH264 built from source. Cisco's patent license covers only their prebuilt binaries, so check the H.264 licensing before you distribute binaries.
 
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 ## License
 
 You can use wl-cast under either the MIT or the Apache-2.0 license, whichever you prefer. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
