@@ -18,7 +18,7 @@ use str0m::{
     media::{MediaKind, MediaTime, Mid},
     net::{Protocol, Receive},
 };
-use wl_cast::{Capture, Encoder, Frame, Input, MouseButton};
+use wl_cast::{AccessToken, Capture, Encoder, Frame, Input, MouseButton};
 
 const PAGE: &str = include_str!("webrtc.html");
 
@@ -30,11 +30,12 @@ struct Encoded {
 fn main() -> Result<(), Box<dyn Error>> {
     let ip = local_ip()?;
     let listener = TcpListener::bind("0.0.0.0:8080")?;
-    println!("open http://{ip}:8080 in a browser");
+    let token = AccessToken::generate()?;
+    println!("open http://{ip}:8080/?t={} in a browser", token.as_str());
 
     let (rtc, socket) = loop {
         let (stream, _) = listener.accept()?;
-        match handle_http(stream, ip) {
+        match handle_http(stream, ip, &token) {
             Ok(Some(connection)) => break connection,
             Ok(None) => {}
             Err(e) => eprintln!("http request failed: {e}"),
@@ -46,7 +47,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     run(rtc, socket, video, keyframe)
 }
 
-fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>, Box<dyn Error>> {
+fn handle_http(
+    stream: TcpStream,
+    ip: IpAddr,
+    token: &AccessToken,
+) -> Result<Option<(Rtc, UdpSocket)>, Box<dyn Error>> {
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -63,8 +69,16 @@ fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>
         }
     }
 
-    if !request_line.starts_with("POST /offer") {
-        respond(&stream, "text/html", PAGE)?;
+    let target = request_line.split_whitespace().nth(1).unwrap_or("");
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let given = query.split('&').find_map(|pair| pair.strip_prefix("t="));
+    if !given.is_some_and(|given| token.verify(given)) {
+        respond(&stream, "403 Forbidden", "text/plain", "forbidden")?;
+        return Ok(None);
+    }
+
+    if !(request_line.starts_with("POST") && path == "/offer") {
+        respond(&stream, "200 OK", "text/html", PAGE)?;
         return Ok(None);
     }
 
@@ -77,14 +91,24 @@ fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>
     rtc.add_local_candidate(Candidate::host(socket.local_addr()?, "udp")?);
     let answer = rtc.sdp_api().accept_offer(offer)?;
 
-    respond(&stream, "application/sdp", &answer.to_sdp_string())?;
+    respond(
+        &stream,
+        "200 OK",
+        "application/sdp",
+        &answer.to_sdp_string(),
+    )?;
     Ok(Some((rtc, socket)))
 }
 
-fn respond(mut stream: &TcpStream, content_type: &str, body: &str) -> std::io::Result<()> {
+fn respond(
+    mut stream: &TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &str,
+) -> std::io::Result<()> {
     write!(
         stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
 }
