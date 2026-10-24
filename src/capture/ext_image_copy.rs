@@ -1,10 +1,5 @@
-use std::{
-    fs::File,
-    os::{fd::AsFd, unix::fs::FileExt},
-    time::Instant,
-};
+use std::{fs::File, os::unix::fs::FileExt, time::Instant};
 
-use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
     protocol::{wl_buffer::WlBuffer, wl_output::Transform, wl_shm},
@@ -15,7 +10,7 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
-use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, to_bgrx};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx};
 use crate::{Error, Frame};
 
 pub(super) struct ExtCapture {
@@ -69,25 +64,8 @@ impl ExtCapture {
 
         let width = state.ext_width;
         let height = state.ext_height;
-        let stride = width * 4;
-        let size = stride * height;
-
-        let fd =
-            memfd_create("wl-cast-frame", MemfdFlags::CLOEXEC).map_err(std::io::Error::from)?;
-        let file = File::from(fd);
-        file.set_len(size as u64)?;
-
         let shm = state.shm.as_ref().ok_or(Error::Unsupported("wl_shm"))?;
-        let pool = shm.create_pool(file.as_fd(), size as i32, &qh, ());
-        let buffer = pool.create_buffer(
-            0,
-            width as i32,
-            height as i32,
-            stride as i32,
-            format,
-            &qh,
-            (),
-        );
+        let (file, buffer) = shm_buffer(shm, &qh, width, height, width * 4, format)?;
 
         let output_transform = state
             .output_transforms

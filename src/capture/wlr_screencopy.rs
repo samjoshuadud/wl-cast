@@ -1,10 +1,5 @@
-use std::{
-    fs::File,
-    os::{fd::AsFd, unix::fs::FileExt},
-    time::Instant,
-};
+use std::{fs::File, os::unix::fs::FileExt, time::Instant};
 
-use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
     protocol::{
@@ -18,7 +13,7 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
-use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, to_bgrx};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx};
 use crate::{Error, Frame};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,22 +59,7 @@ impl WlrCapture {
         let WEnum::Value(format) = info.format else {
             return Err(Error::Unsupported(FORMATS_ERROR));
         };
-        let size = info.stride as usize * info.height as usize;
-        let fd =
-            memfd_create("wl-cast-frame", MemfdFlags::CLOEXEC).map_err(std::io::Error::from)?;
-        let file = File::from(fd);
-        file.set_len(size as u64)?;
-
-        let pool = shm.create_pool(file.as_fd(), size as i32, &qh, ());
-        let buffer = pool.create_buffer(
-            0,
-            info.width as i32,
-            info.height as i32,
-            info.stride as i32,
-            format,
-            &qh,
-            (),
-        );
+        let (file, buffer) = shm_buffer(&shm, &qh, info.width, info.height, info.stride, format)?;
 
         Ok(Self {
             queue,

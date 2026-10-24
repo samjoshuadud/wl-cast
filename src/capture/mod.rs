@@ -1,8 +1,9 @@
 mod ext_image_copy;
 mod wlr_screencopy;
 
-use std::fmt;
+use std::{fmt, fs::File, os::fd::AsFd};
 
+use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
     Connection, Dispatch, QueueHandle, WEnum, delegate_noop,
     protocol::{
@@ -132,6 +133,31 @@ fn to_bgrx(mut data: Vec<u8>, format: wl_shm::Format) -> Vec<u8> {
         }
     }
     data
+}
+
+fn shm_buffer(
+    shm: &WlShm,
+    qh: &QueueHandle<State>,
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: wl_shm::Format,
+) -> Result<(File, WlBuffer), Error> {
+    let size = stride as usize * height as usize;
+    let fd = memfd_create("wl-cast-frame", MemfdFlags::CLOEXEC).map_err(std::io::Error::from)?;
+    let file = File::from(fd);
+    file.set_len(size as u64)?;
+    let pool = shm.create_pool(file.as_fd(), size as i32, qh, ());
+    let buffer = pool.create_buffer(
+        0,
+        width as i32,
+        height as i32,
+        stride as i32,
+        format,
+        qh,
+        (),
+    );
+    Ok((file, buffer))
 }
 
 fn oriented_size(width: u32, height: u32, transform: Transform) -> (u32, u32) {
