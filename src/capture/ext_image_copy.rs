@@ -7,7 +7,7 @@ use std::{
 use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
-    protocol::{wl_buffer::WlBuffer, wl_shm},
+    protocol::{wl_buffer::WlBuffer, wl_output::Transform, wl_shm},
 };
 use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
@@ -15,7 +15,7 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
-use super::State;
+use super::{State, orient, oriented_size};
 use crate::{Error, Frame};
 
 pub(super) struct ExtCapture {
@@ -26,6 +26,7 @@ pub(super) struct ExtCapture {
     file: File,
     width: u32,
     height: u32,
+    size: (u32, u32),
 }
 
 impl ExtCapture {
@@ -87,6 +88,13 @@ impl ExtCapture {
             (),
         );
 
+        let output_transform = state
+            .output_transforms
+            .get(output_index)
+            .copied()
+            .unwrap_or(Transform::Normal);
+        let size = oriented_size(width, height, output_transform);
+
         Ok(Self {
             queue,
             state,
@@ -95,16 +103,18 @@ impl ExtCapture {
             file,
             width,
             height,
+            size,
         })
     }
 
     pub(super) fn size(&self) -> (u32, u32) {
-        (self.width, self.height)
+        self.size
     }
 
     pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
         self.state.frame_ready = false;
         self.state.frame_failed = false;
+        self.state.ext_transform = None;
 
         let frame = self.session.create_frame(&self.queue.handle(), ());
         frame.attach_buffer(&self.buffer);
@@ -120,13 +130,18 @@ impl ExtCapture {
             return Err(Error::CaptureFailed);
         }
 
+        let transform = self.state.ext_transform.unwrap_or(Transform::Normal);
+        if oriented_size(self.width, self.height, transform) != self.size {
+            return Err(Error::CaptureFailed);
+        }
+
         let mut data = vec![0; (self.width * self.height * 4) as usize];
         self.file.read_exact_at(&mut data, 0)?;
 
         Ok(Frame {
-            width: self.width,
-            height: self.height,
-            data,
+            width: self.size.0,
+            height: self.size.1,
+            data: orient(data, self.width, self.height, transform),
             captured_at: Instant::now(),
         })
     }
@@ -165,6 +180,9 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for State {
         _qh: &QueueHandle<Self>,
     ) {
         match event {
+            ext_image_copy_capture_frame_v1::Event::Transform {
+                transform: WEnum::Value(transform),
+            } => state.ext_transform = Some(transform),
             ext_image_copy_capture_frame_v1::Event::Ready => state.frame_ready = true,
             ext_image_copy_capture_frame_v1::Event::Failed { .. } => state.frame_failed = true,
             _ => {}

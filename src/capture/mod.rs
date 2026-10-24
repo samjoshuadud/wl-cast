@@ -2,10 +2,10 @@ mod ext_image_copy;
 mod wlr_screencopy;
 
 use wayland_client::{
-    Connection, Dispatch, QueueHandle, delegate_noop,
+    Connection, Dispatch, QueueHandle, WEnum, delegate_noop,
     protocol::{
         wl_buffer::WlBuffer,
-        wl_output::WlOutput,
+        wl_output::{self, Transform, WlOutput},
         wl_registry::{self, WlRegistry},
         wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool,
@@ -56,6 +56,7 @@ impl Capture {
 
         conn.display().get_registry(&qh, ());
         queue.roundtrip(&mut state)?;
+        queue.roundtrip(&mut state)?;
 
         let preference = std::env::var("WL_CAST_CAPTURE").ok();
         let backend = match choose(preference.as_deref(), state.has_ext(), state.has_wlr())? {
@@ -100,9 +101,53 @@ fn choose(preference: Option<&str>, ext: bool, wlr: bool) -> Result<Kind, Error>
     }
 }
 
+fn oriented_size(width: u32, height: u32, transform: Transform) -> (u32, u32) {
+    if quarter_turns(transform) % 2 == 1 {
+        (height, width)
+    } else {
+        (width, height)
+    }
+}
+
+fn quarter_turns(transform: Transform) -> u32 {
+    u32::from(transform) & 3
+}
+
+fn is_mirrored(transform: Transform) -> bool {
+    u32::from(transform) & 4 != 0
+}
+
+fn orient(data: Vec<u8>, width: u32, height: u32, transform: Transform) -> Vec<u8> {
+    if transform == Transform::Normal {
+        return data;
+    }
+    let (out_width, out_height) = oriented_size(width, height, transform);
+    let (width, height) = (i64::from(width), i64::from(height));
+    let (out_width, out_height) = (i64::from(out_width), i64::from(out_height));
+    let mut out = vec![0; data.len()];
+    for (index, pixel) in (0..).zip(data.as_chunks::<4>().0) {
+        let mut x = 2 * (index % width) + 1 - width;
+        let mut y = 2 * (index / width) + 1 - height;
+        for _ in 0..quarter_turns(transform) {
+            (x, y) = (-y, x);
+        }
+        if is_mirrored(transform) {
+            x = -x;
+        }
+        let out_x = (x + out_width - 1) / 2;
+        let out_y = (y + out_height - 1) / 2;
+        let start = ((out_y * out_width + out_x) * 4) as usize;
+        if let Some(target) = out.get_mut(start..start + 4) {
+            target.copy_from_slice(pixel);
+        }
+    }
+    out
+}
+
 #[derive(Default)]
 struct State {
     outputs: Vec<WlOutput>,
+    output_transforms: Vec<Transform>,
     shm: Option<WlShm>,
     frame_ready: bool,
     frame_failed: bool,
@@ -113,6 +158,7 @@ struct State {
     ext_height: u32,
     ext_formats: Vec<wl_shm::Format>,
     ext_constraints_done: bool,
+    ext_transform: Option<Transform>,
 
     wlr_manager: Option<ZwlrScreencopyManagerV1>,
     wlr_version: u32,
@@ -147,7 +193,11 @@ impl Dispatch<WlRegistry, ()> for State {
         } = event
         {
             match interface.as_str() {
-                "wl_output" => state.outputs.push(registry.bind(name, 1, qh, ())),
+                "wl_output" => {
+                    let index = state.outputs.len();
+                    state.outputs.push(registry.bind(name, 1, qh, index));
+                    state.output_transforms.push(Transform::Normal);
+                }
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
                 "ext_output_image_capture_source_manager_v1" => {
                     state.ext_source_manager = Some(registry.bind(name, 1, qh, ()))
@@ -165,7 +215,26 @@ impl Dispatch<WlRegistry, ()> for State {
     }
 }
 
-delegate_noop!(State: ignore WlOutput);
+impl Dispatch<WlOutput, usize> for State {
+    fn event(
+        state: &mut Self,
+        _output: &WlOutput,
+        event: wl_output::Event,
+        index: &usize,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        if let wl_output::Event::Geometry {
+            transform: WEnum::Value(transform),
+            ..
+        } = event
+            && let Some(slot) = state.output_transforms.get_mut(*index)
+        {
+            *slot = transform;
+        }
+    }
+}
+
 delegate_noop!(State: ignore WlShm);
 delegate_noop!(State: WlShmPool);
 delegate_noop!(State: ignore WlBuffer);
@@ -217,5 +286,35 @@ mod tests {
     #[test]
     fn an_unknown_preference_is_ignored() {
         assert!(matches!(choose(Some("other"), false, true), Ok(Kind::Wlr)));
+    }
+
+    fn pixels(values: &[u8]) -> Vec<u8> {
+        values.iter().flat_map(|&value| [value; 4]).collect()
+    }
+
+    fn oriented(transform: Transform) -> Vec<u8> {
+        orient(pixels(&[1, 2, 3, 4, 5, 6]), 3, 2, transform)
+    }
+
+    #[test]
+    fn a_normal_frame_is_unchanged() {
+        assert_eq!(oriented(Transform::Normal), pixels(&[1, 2, 3, 4, 5, 6]));
+    }
+
+    #[test]
+    fn half_turns_and_mirrors_keep_the_size() {
+        assert_eq!(oriented(Transform::_180), pixels(&[6, 5, 4, 3, 2, 1]));
+        assert_eq!(oriented(Transform::Flipped), pixels(&[3, 2, 1, 6, 5, 4]));
+        assert_eq!(oriented(Transform::Flipped180), pixels(&[4, 5, 6, 1, 2, 3]));
+        assert_eq!(oriented_size(3, 2, Transform::Flipped180), (3, 2));
+    }
+
+    #[test]
+    fn quarter_turns_swap_width_and_height() {
+        assert_eq!(oriented(Transform::_90), pixels(&[4, 1, 5, 2, 6, 3]));
+        assert_eq!(oriented(Transform::_270), pixels(&[3, 6, 2, 5, 1, 4]));
+        assert_eq!(oriented(Transform::Flipped90), pixels(&[1, 4, 2, 5, 3, 6]));
+        assert_eq!(oriented(Transform::Flipped270), pixels(&[6, 3, 5, 2, 4, 1]));
+        assert_eq!(oriented_size(3, 2, Transform::_90), (2, 3));
     }
 }

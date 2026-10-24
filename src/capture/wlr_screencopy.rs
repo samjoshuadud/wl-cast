@@ -7,14 +7,18 @@ use std::{
 use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
-    protocol::{wl_buffer::WlBuffer, wl_output::WlOutput, wl_shm::Format},
+    protocol::{
+        wl_buffer::WlBuffer,
+        wl_output::{Transform, WlOutput},
+        wl_shm::Format,
+    },
 };
 use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, Flags, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
-use super::State;
+use super::{State, orient, oriented_size};
 use crate::{Error, Frame};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -30,6 +34,7 @@ pub(super) struct WlrCapture {
     state: State,
     manager: ZwlrScreencopyManagerV1,
     output: WlOutput,
+    output_index: usize,
     info: BufferInfo,
     file: File,
     buffer: WlBuffer,
@@ -83,6 +88,7 @@ impl WlrCapture {
             state,
             manager,
             output,
+            output_index,
             info,
             file,
             buffer,
@@ -90,7 +96,15 @@ impl WlrCapture {
     }
 
     pub(super) fn size(&self) -> (u32, u32) {
-        (self.info.width, self.info.height)
+        oriented_size(self.info.width, self.info.height, self.transform())
+    }
+
+    fn transform(&self) -> Transform {
+        self.state
+            .output_transforms
+            .get(self.output_index)
+            .copied()
+            .unwrap_or(Transform::Normal)
     }
 
     pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
@@ -122,10 +136,12 @@ impl WlrCapture {
         let mut raw = vec![0; info.stride as usize * info.height as usize];
         self.file.read_exact_at(&mut raw, 0)?;
 
+        let rows = pack_rows(&raw, info.width, info.stride, self.state.wlr_y_invert);
+        let (width, height) = self.size();
         Ok(Frame {
-            width: info.width,
-            height: info.height,
-            data: pack_rows(&raw, info.width, info.stride, self.state.wlr_y_invert),
+            width,
+            height,
+            data: orient(rows, info.width, info.height, self.transform()),
             captured_at: Instant::now(),
         })
     }
