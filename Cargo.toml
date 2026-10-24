@@ -20,6 +20,7 @@ wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
 
 [dev-dependencies]
 image = { version = "0.25.9", default-features = false, features = ["png"] }
+str0m = "0.24.1"
 
 [features]
 ffmpeg = ["dep:ffmpeg-next"]
