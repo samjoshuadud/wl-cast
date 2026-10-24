@@ -1,4 +1,5 @@
 /// Errors returned by wl-cast.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Could not connect to the Wayland compositor.

@@ -24,6 +24,9 @@ use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Settings for a [`RemoteSession`].
+///
+/// Build one with [`SessionConfig::new`].
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionConfig {
     /// The monitor to share, counted from 0.
@@ -34,6 +37,25 @@ pub struct SessionConfig {
     pub udp_port: u16,
     /// Your public address, if viewers connect from the internet.
     pub public_ip: Option<IpAddr>,
+}
+
+impl SessionConfig {
+    /// Creates session settings.
+    ///
+    /// A `udp_port` of 0 picks a free port. `public_ip` is the address viewers on the internet use.
+    pub fn new(
+        output_index: usize,
+        local_ip: IpAddr,
+        udp_port: u16,
+        public_ip: Option<IpAddr>,
+    ) -> Self {
+        Self {
+            output_index,
+            local_ip,
+            udp_port,
+            public_ip,
+        }
+    }
 }
 
 /// One viewer watching and controlling the screen over WebRTC.

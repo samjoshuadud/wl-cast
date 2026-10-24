@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Breaking: `Error`, `Frame` and `SessionConfig` are `#[non_exhaustive]`. Build a frame with `Frame::new` and session settings with `SessionConfig::new`.
+
 ### Added
 
 - CI runs capture and input against a headless Sway.

@@ -7,21 +7,11 @@ const IDR: u8 = 5;
 fn frame(patch: u8) -> Frame {
     let mut data = vec![100; 64 * 64 * 4];
     data[..64 * 4 * 4].fill(patch);
-    Frame {
-        width: 64,
-        height: 64,
-        data,
-        captured_at: Instant::now(),
-    }
+    Frame::new(64, 64, data, Instant::now())
 }
 
 fn raw_frame(width: u32, height: u32, len: usize) -> Frame {
-    Frame {
-        width,
-        height,
-        data: vec![100; len],
-        captured_at: Instant::now(),
-    }
+    Frame::new(width, height, vec![100; len], Instant::now())
 }
 
 fn nal_types(h264: &[u8]) -> Vec<u8> {

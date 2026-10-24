@@ -16,12 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|arg| arg.parse::<IpAddr>())
         .transpose()?;
     let local_ip = local_ip()?;
-    let config = SessionConfig {
-        output_index: 0,
-        local_ip,
-        udp_port: PORT,
-        public_ip,
-    };
+    let config = SessionConfig::new(0, local_ip, PORT, public_ip);
 
     let listener = TcpListener::bind(("0.0.0.0", PORT))?;
     let token = AccessToken::generate()?;
