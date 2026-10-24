@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Added
 
 - `Capture` falls back to wlr-screencopy when the compositor lacks ext-image-copy-capture. This adds niri.
