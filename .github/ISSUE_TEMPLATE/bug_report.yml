@@ -45,7 +45,7 @@ body:
     attributes:
       label: Cargo features enabled
       options:
-        - none
+        - Default features only
         - ffmpeg
         - webrtc
         - ffmpeg and webrtc
