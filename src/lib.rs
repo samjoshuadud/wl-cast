@@ -35,7 +35,7 @@ mod webrtc;
 
 pub use auth::AccessToken;
 pub use capture::Capture;
-pub use encode::Encoder;
+pub use encode::{Encoder, EncoderConfig, H264Profile};
 pub use error::Error;
 pub use frame::Frame;
 pub use input::{Input, MouseButton, PressState};

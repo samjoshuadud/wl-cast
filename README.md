@@ -28,6 +28,8 @@ let h264 = encoder.encode(&frame)?;
 
 `Input` moves the mouse and presses keys. `RtpSender` and `RemoteSession` send the video out. The `examples` folder has a runnable demo for each.
 
+`Encoder::new` uses 8 Mbit/s and 60 frames per second. `Encoder::with_config` changes the bitrate, frame rate and H.264 profile. A WebRTC session reads the same settings from `SessionConfig.encoder`.
+
 ## Compositor support
 
 wl-cast picks a backend by what the compositor offers, not by its name. Capture uses ext-image-copy-capture when available, otherwise wlr-screencopy. Input uses the wlr virtual pointer and the virtual keyboard.

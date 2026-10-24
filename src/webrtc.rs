@@ -19,7 +19,7 @@ use str0m::{
     net::{Protocol, Receive},
 };
 
-use crate::{Capture, Encoder, Error, Frame, Input, MouseButton, PressState};
+use crate::{Capture, Encoder, EncoderConfig, Error, Frame, Input, MouseButton, PressState};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -37,6 +37,8 @@ pub struct SessionConfig {
     pub udp_port: u16,
     /// Your public address, if viewers connect from the internet.
     pub public_ip: Option<IpAddr>,
+    /// Bitrate, frame rate and H.264 profile for the video.
+    pub encoder: EncoderConfig,
 }
 
 impl SessionConfig {
@@ -54,6 +56,7 @@ impl SessionConfig {
             local_ip,
             udp_port,
             public_ip,
+            encoder: EncoderConfig::default(),
         }
     }
 }
@@ -63,6 +66,7 @@ pub struct RemoteSession {
     rtc: Rtc,
     socket: UdpSocket,
     output_index: usize,
+    encoder: EncoderConfig,
 }
 
 struct Encoded {
@@ -97,6 +101,7 @@ impl RemoteSession {
             rtc,
             socket,
             output_index: config.output_index,
+            encoder: config.encoder,
         };
         Ok((session, answer))
     }
@@ -109,7 +114,7 @@ impl RemoteSession {
     /// or the capture or encoder error if either fails.
     pub fn run(mut self) -> Result<(), Error> {
         let keyframe = Arc::new(AtomicBool::new(true));
-        let video = start_video(self.output_index, keyframe.clone());
+        let video = start_video(self.output_index, keyframe.clone(), self.encoder);
         let mut input = Input::new(self.output_index)?;
 
         let start = Instant::now();
@@ -197,13 +202,17 @@ impl RemoteSession {
     }
 }
 
-fn start_video(output_index: usize, keyframe: Arc<AtomicBool>) -> Receiver<Result<Encoded, Error>> {
+fn start_video(
+    output_index: usize,
+    keyframe: Arc<AtomicBool>,
+    encoder: EncoderConfig,
+) -> Receiver<Result<Encoded, Error>> {
     let (frame_tx, frame_rx) = mpsc::sync_channel(1);
     let (encoded_tx, encoded_rx) = mpsc::sync_channel(1);
 
     thread::spawn(move || capture_loop(output_index, frame_tx));
     thread::spawn(move || {
-        if let Err(e) = encode_loop(&frame_rx, &encoded_tx, &keyframe) {
+        if let Err(e) = encode_loop(&frame_rx, &encoded_tx, &keyframe, encoder) {
             let _ = encoded_tx.send(Err(e));
         }
     });
@@ -232,6 +241,7 @@ fn encode_loop(
     frames: &Receiver<Result<Frame, Error>>,
     encoded: &SyncSender<Result<Encoded, Error>>,
     keyframe: &AtomicBool,
+    encoder_config: EncoderConfig,
 ) -> Result<(), Error> {
     let mut encoder: Option<Encoder> = None;
     let mut encoded_size = None;
@@ -250,7 +260,11 @@ fn encode_loop(
 
         let size = (frame.width, frame.height);
         if encoder_is_stale(encoded_size, size) {
-            encoder = Some(Encoder::new(frame.width, frame.height)?);
+            encoder = Some(Encoder::with_config(
+                frame.width,
+                frame.height,
+                encoder_config,
+            )?);
             encoded_size = Some(size);
             keyframe.store(true, Ordering::Relaxed);
         }
@@ -410,6 +424,7 @@ mod tests {
             local_ip: Ipv4Addr::LOCALHOST.into(),
             udp_port: 0,
             public_ip,
+            encoder: EncoderConfig::default(),
         }
     }
 

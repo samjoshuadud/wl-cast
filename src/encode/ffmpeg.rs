@@ -5,6 +5,7 @@ use ffmpeg_next::{
     picture, software::scaling,
 };
 
+use super::{EncoderConfig, H264Profile};
 use crate::{Error, Frame};
 
 const CANDIDATES: [&str; 2] = ["h264_vaapi", "h264_nvenc"];
@@ -24,27 +25,34 @@ pub(crate) struct HardwareEncoder {
 unsafe impl Send for HardwareEncoder {}
 
 impl HardwareEncoder {
-    pub(crate) fn open_any(width: u32, height: u32) -> Option<Self> {
+    pub(crate) fn open_any(width: u32, height: u32, config: EncoderConfig) -> Option<Self> {
         ffmpeg::init().ok()?;
         ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Fatal);
         CANDIDATES
             .into_iter()
-            .find_map(|name| Self::open(name, width, height).ok())
+            .find_map(|name| Self::open(name, width, height, config).ok())
     }
 
-    fn open(name: &'static str, width: u32, height: u32) -> Result<Self, Error> {
+    fn open(
+        name: &'static str,
+        width: u32,
+        height: u32,
+        config: EncoderConfig,
+    ) -> Result<Self, Error> {
         let codec = encoder::find_by_name(name).ok_or(Error::Unsupported("FFmpeg encoder"))?;
         let mut video = codec::context::Context::new_with_codec(codec)
             .encoder()
             .video()
             .map_err(ffmpeg_error)?;
 
+        let rate = i32::try_from(config.frame_rate)
+            .map_err(|_| Error::Encode("frame rate is too high".into()))?;
         video.set_width(width);
         video.set_height(height);
-        video.set_time_base(Rational(1, 60));
-        video.set_frame_rate(Some(Rational(60, 1)));
-        video.set_bit_rate(8_000_000);
-        video.set_gop(60);
+        video.set_time_base(Rational(1, rate));
+        video.set_frame_rate(Some(Rational(rate, 1)));
+        video.set_bit_rate(config.bitrate_bps as usize);
+        video.set_gop(config.frame_rate);
         video.set_max_b_frames(0);
 
         let gpu_frames = if name == "h264_vaapi" {
@@ -60,6 +68,9 @@ impl HardwareEncoder {
         };
 
         let mut options = Dictionary::new();
+        if let Some(profile) = ffmpeg_profile(config.profile) {
+            options.set("profile", profile);
+        }
         if name == "h264_vaapi" {
             options.set("async_depth", "1");
         }
@@ -207,6 +218,16 @@ impl Drop for GpuFrames {
             ffi::av_buffer_unref(&mut self.frames);
             ffi::av_buffer_unref(&mut self.device);
         }
+    }
+}
+
+fn ffmpeg_profile(profile: H264Profile) -> Option<&'static str> {
+    match profile {
+        H264Profile::Unspecified => None,
+        H264Profile::ConstrainedBaseline => Some("constrained_baseline"),
+        H264Profile::Baseline => Some("baseline"),
+        H264Profile::Main => Some("main"),
+        H264Profile::High => Some("high"),
     }
 }
 
