@@ -9,6 +9,10 @@ pub struct AccessToken {
 
 impl AccessToken {
     /// Generates a new random token.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if `/dev/urandom` cannot be read.
     pub fn generate() -> Result<Self, Error> {
         let mut bytes = [0u8; 16];
         File::open("/dev/urandom")?.read_exact(&mut bytes)?;

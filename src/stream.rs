@@ -63,6 +63,10 @@ impl RtpSender {
     }
 
     /// Sends one encoded frame. `captured_at` decides when the player shows it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if a packet cannot be sent.
     pub fn send(&mut self, h264: &[u8], captured_at: Instant) -> Result<(), Error> {
         let start = *self.start.get_or_insert(captured_at);
         let seconds = captured_at.duration_since(start).as_secs_f64();

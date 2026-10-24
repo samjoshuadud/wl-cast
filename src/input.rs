@@ -118,6 +118,10 @@ impl Input {
     }
 
     /// Moves the pointer to `x`, `y`, given as fractions of the screen from 0.0 to 1.0.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
     pub fn move_to(&mut self, x: f64, y: f64) -> Result<(), Error> {
         let x = (x.clamp(0.0, 1.0) * EXTENT as f64) as u32;
         let y = (y.clamp(0.0, 1.0) * EXTENT as f64) as u32;
@@ -128,6 +132,10 @@ impl Input {
     }
 
     /// Presses or releases a mouse button.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
     pub fn button(&mut self, button: MouseButton, pressed: bool) -> Result<(), Error> {
         let state = if pressed {
             ButtonState::Pressed
@@ -140,6 +148,10 @@ impl Input {
     }
 
     /// Scrolls by `dx`, `dy` in pixels. Positive `dy` scrolls down.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
     pub fn scroll(&mut self, dx: f64, dy: f64) -> Result<(), Error> {
         let time = self.time();
         if dx != 0.0 {
@@ -155,6 +167,10 @@ impl Input {
     /// Presses or releases a key.
     ///
     /// `code` is a Linux key code, for example 30 for A. The list is in `linux/input-event-codes.h`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
     pub fn key(&mut self, code: u32, pressed: bool) -> Result<(), Error> {
         let state = if pressed {
             wl_keyboard::KeyState::Pressed

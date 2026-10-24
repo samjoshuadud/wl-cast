@@ -9,7 +9,7 @@ use crate::{Error, Frame};
 /// Encodes frames to H.264, using the GPU when possible.
 ///
 /// With the `ffmpeg` feature it tries VA-API (Intel, AMD), then NVENC (Nvidia).
-/// Otherwise, or if no GPU encoder works, it falls back to OpenH264 in software.
+/// Otherwise, or if no GPU encoder works, it falls back to `OpenH264` in software.
 pub struct Encoder {
     backend: Backend,
     width: u32,
@@ -24,6 +24,10 @@ enum Backend {
 
 impl Encoder {
     /// Opens an encoder for frames of exactly `width` by `height` pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Encode`] if no encoder can be opened, not even `OpenH264`.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
         #[cfg(feature = "ffmpeg")]
         if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(width, height) {
