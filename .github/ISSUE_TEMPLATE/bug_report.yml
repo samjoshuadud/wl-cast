@@ -1,0 +1,58 @@
+name: Bug report
+description: Something does not work
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the example or code you ran.
+    validations:
+      required: true
+  - type: input
+    id: compositor
+    attributes:
+      label: Compositor and version
+      placeholder: Hyprland 0.56.2
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: AMD Lucienne, Mesa 26.0
+  - type: input
+    id: distro
+    attributes:
+      label: Distro
+      placeholder: NixOS 26.11
+  - type: input
+    id: version
+    attributes:
+      label: wl-cast version or commit
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: features
+    attributes:
+      label: Cargo features enabled
+      options:
+        - none
+        - ffmpeg
+        - webrtc
+        - ffmpeg and webrtc
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output or logs
+      render: shell

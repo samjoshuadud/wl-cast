@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem do you want to solve
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like wl-cast to do
+    validations:
+      required: true
+  - type: input
+    id: compositor
+    attributes:
+      label: Compositor, if it is specific to one
