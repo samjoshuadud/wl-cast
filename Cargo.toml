@@ -7,6 +7,7 @@ description = "Screen capture, encoding and input for Wayland compositors"
 license = "MIT OR Apache-2.0"
 keywords = ["wayland", "screencast", "screen-capture", "hyprland", "remote-desktop"]
 categories = ["multimedia::video", "os::linux-apis"]
+exclude = [".github", "flake.nix", "flake.lock"]
 
 [dependencies]
 ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-scaling"], optional = true }
