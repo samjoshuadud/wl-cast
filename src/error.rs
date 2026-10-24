@@ -16,4 +16,7 @@ pub enum Error {
     Encode(String),
     #[error("could not resolve address")]
     InvalidAddress,
+    #[cfg(feature = "webrtc")]
+    #[error("WebRTC error: {0}")]
+    WebRtc(String),
 }

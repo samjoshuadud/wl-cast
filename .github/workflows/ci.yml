@@ -35,6 +35,17 @@ jobs:
       - run: cargo clippy --all-targets --features ffmpeg
       - run: cargo test --features ffmpeg
 
+  webrtc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --features webrtc
+      - run: cargo test --features webrtc
+
   msrv:
     runs-on: ubuntu-latest
     steps:
