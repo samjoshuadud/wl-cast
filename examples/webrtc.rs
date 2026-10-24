@@ -12,13 +12,13 @@ use std::{
 };
 
 use str0m::{
-    Candidate, Event, IceConnectionState, Input, Output, Rtc,
+    Candidate, Event, IceConnectionState, Input as RtcInput, Output, Rtc,
     change::SdpOffer,
     format::Codec,
     media::{MediaKind, MediaTime, Mid},
     net::{Protocol, Receive},
 };
-use wl_cast::{Capture, Encoder, Frame};
+use wl_cast::{Capture, Encoder, Frame, Input, MouseButton};
 
 const PAGE: &str = include_str!("webrtc.html");
 
@@ -162,6 +162,7 @@ fn run(
     keyframe: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
+    let mut input = Input::new(0)?;
     let mut video_mid: Option<Mid> = None;
     let mut connected = false;
     let mut buffer = vec![0; 2000];
@@ -188,6 +189,11 @@ fn run(
                         video_mid = Some(media.mid);
                     }
                     Event::KeyframeRequest(_) => keyframe.store(true, Ordering::Relaxed),
+                    Event::ChannelData(data) => {
+                        if let Ok(message) = std::str::from_utf8(&data.data) {
+                            apply_input(&mut input, message)?;
+                        }
+                    }
                     _ => {}
                 }
                 continue;
@@ -204,7 +210,7 @@ fn run(
             .saturating_duration_since(Instant::now())
             .min(Duration::from_millis(5));
         if wait.is_zero() {
-            rtc.handle_input(Input::Timeout(Instant::now()))?;
+            rtc.handle_input(RtcInput::Timeout(Instant::now()))?;
             continue;
         }
 
@@ -217,10 +223,10 @@ fn run(
                     destination: socket.local_addr()?,
                     contents: buffer[..length].try_into()?,
                 };
-                rtc.handle_input(Input::Receive(Instant::now(), receive))?;
+                rtc.handle_input(RtcInput::Receive(Instant::now(), receive))?;
             }
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                rtc.handle_input(Input::Timeout(Instant::now()))?;
+                rtc.handle_input(RtcInput::Timeout(Instant::now()))?;
             }
             Err(e) => return Err(e.into()),
         }
@@ -249,6 +255,38 @@ fn send_video(
         .as_secs_f64();
     let rtp_time = MediaTime::from_90khz((seconds * 90_000.0) as u64);
     writer.write(pt, encoded.encoded_at, rtp_time, encoded.data)?;
+    Ok(())
+}
+
+fn apply_input(input: &mut Input, message: &str) -> Result<(), wl_cast::Error> {
+    let parts: Vec<&str> = message.split_whitespace().collect();
+    match parts.as_slice() {
+        ["m", x, y] => {
+            if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
+                input.move_to(x, y)?;
+            }
+        }
+        ["b", button, state] => {
+            let button = match *button {
+                "0" => MouseButton::Left,
+                "1" => MouseButton::Middle,
+                "2" => MouseButton::Right,
+                _ => return Ok(()),
+            };
+            input.button(button, *state == "1")?;
+        }
+        ["w", dx, dy] => {
+            if let (Ok(dx), Ok(dy)) = (dx.parse(), dy.parse()) {
+                input.scroll(dx, dy)?;
+            }
+        }
+        ["k", code, state] => {
+            if let Ok(code) = code.parse() {
+                input.key(code, *state == "1")?;
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 
