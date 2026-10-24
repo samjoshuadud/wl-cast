@@ -21,7 +21,7 @@
 //! # }
 //! ```
 
-#![warn(missing_docs)]
+#![warn(missing_docs, missing_debug_implementations)]
 
 mod auth;
 mod capture;

@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     os::fd::{AsFd, OwnedFd},
     time::Instant,
 };
@@ -187,6 +188,15 @@ impl Input {
 
     fn flush(&self) -> Result<(), Error> {
         self.conn.flush().map_err(|e| Error::Dispatch(e.into()))
+    }
+}
+
+impl fmt::Debug for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Input")
+            .field("held_modifiers", &self.held_modifiers)
+            .field("locked_modifiers", &self.locked_modifiers)
+            .finish_non_exhaustive()
     }
 }
 

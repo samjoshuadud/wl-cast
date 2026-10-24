@@ -2,6 +2,8 @@
 mod ffmpeg;
 mod openh264;
 
+use std::fmt;
+
 use crate::{Error, Frame};
 
 /// Encodes frames to H.264, using the GPU when possible.
@@ -77,5 +79,15 @@ impl Encoder {
             Backend::Hardware(encoder) => encoder.encode(frame),
             Backend::Software(encoder) => encoder.encode(frame),
         }
+    }
+}
+
+impl fmt::Debug for Encoder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Encoder")
+            .field("name", &self.name())
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .finish()
     }
 }

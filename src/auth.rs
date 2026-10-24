@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::{fmt, fs::File, io::Read};
 
 use crate::Error;
 
@@ -35,6 +35,12 @@ impl AccessToken {
     }
 }
 
+impl fmt::Debug for AccessToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("AccessToken(..)")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +67,13 @@ mod tests {
         assert!(!token.verify("not-the-token"));
         assert!(!token.verify(&token.as_str().to_uppercase()));
         assert!(!token.verify(&format!("{}0", token.as_str())));
+    }
+
+    #[test]
+    fn debug_output_hides_the_secret() {
+        let token = AccessToken::generate().unwrap();
+        let debug = format!("{token:?}");
+        assert_eq!(debug, "AccessToken(..)");
+        assert!(!debug.contains(token.as_str()));
     }
 }

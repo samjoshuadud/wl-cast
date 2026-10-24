@@ -1,6 +1,8 @@
 mod ext_image_copy;
 mod wlr_screencopy;
 
+use std::fmt;
+
 use wayland_client::{
     Connection, Dispatch, QueueHandle, WEnum, delegate_noop,
     protocol::{
@@ -84,6 +86,19 @@ impl Capture {
             Backend::Ext(capture) => capture.next_frame(),
             Backend::Wlr(capture) => capture.next_frame(),
         }
+    }
+}
+
+impl fmt::Debug for Capture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let backend = match self.backend {
+            Backend::Ext(_) => "ext-image-copy-capture",
+            Backend::Wlr(_) => "wlr-screencopy",
+        };
+        f.debug_struct("Capture")
+            .field("backend", &backend)
+            .field("size", &self.size())
+            .finish()
     }
 }
 

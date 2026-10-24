@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io::ErrorKind,
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::{
@@ -23,6 +24,7 @@ use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Settings for a [`RemoteSession`].
+#[derive(Debug)]
 pub struct SessionConfig {
     /// The monitor to share, counted from 0.
     pub output_index: usize,
@@ -266,6 +268,15 @@ fn send_video(rtc: &mut Rtc, mid: Mid, encoded: Encoded, start: Instant) -> Resu
         .map_err(webrtc_error)
 }
 
+impl fmt::Debug for RemoteSession {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteSession")
+            .field("output_index", &self.output_index)
+            .field("local_address", &self.socket.local_addr().ok())
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum ViewerEvent {
     Move { x: f64, y: f64 },
@@ -416,6 +427,14 @@ mod tests {
         assert!(!connect_timed_out(false, Duration::from_secs(29)));
         assert!(connect_timed_out(false, Duration::from_secs(31)));
         assert!(!connect_timed_out(true, Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn debug_output_shows_the_monitor_and_local_address() {
+        let (session, _answer) = RemoteSession::accept(&browser_offer(), &config(None)).unwrap();
+        let debug = format!("{session:?}");
+        assert!(debug.contains("output_index: 0"));
+        assert!(debug.contains("127.0.0.1"));
     }
 
     #[test]

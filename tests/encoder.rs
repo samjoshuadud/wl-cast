@@ -68,6 +68,15 @@ fn accepts_a_frame_of_the_right_size_after_a_rejected_one() {
 }
 
 #[test]
+fn debug_output_shows_the_encoder_and_size() {
+    let encoder = Encoder::new(64, 32).unwrap();
+    let debug = format!("{encoder:?}");
+    assert!(debug.contains(encoder.name()));
+    assert!(debug.contains("width: 64"));
+    assert!(debug.contains("height: 32"));
+}
+
+#[test]
 fn encoder_can_move_between_threads() {
     fn assert_send<T: Send>() {}
     assert_send::<Encoder>();

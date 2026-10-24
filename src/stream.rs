@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     net::{SocketAddr, ToSocketAddrs, UdpSocket},
     time::Instant,
 };
@@ -85,6 +86,15 @@ impl RtpSender {
         }
 
         Ok(())
+    }
+}
+
+impl fmt::Debug for RtpSender {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RtpSender")
+            .field("destination", &self.destination)
+            .field("sequence", &self.sequence)
+            .finish_non_exhaustive()
     }
 }
 
@@ -185,5 +195,11 @@ mod tests {
             rebuilt.extend(&part[2..]);
         }
         assert_eq!(rebuilt, nal);
+    }
+
+    #[test]
+    fn debug_output_shows_the_destination() {
+        let sender = RtpSender::new("127.0.0.1:5004").unwrap();
+        assert!(format!("{sender:?}").contains("127.0.0.1:5004"));
     }
 }
