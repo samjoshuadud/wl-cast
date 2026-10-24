@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.89"
 description = "Screen capture, encoding and input for Wayland compositors"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/samjoshuadud/wl-cast"
 keywords = ["wayland", "screencast", "screen-capture", "hyprland", "remote-desktop"]
 categories = ["multimedia::video", "os::linux-apis"]
 exclude = [".github", "flake.nix", "flake.lock"]

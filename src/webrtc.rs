@@ -22,10 +22,15 @@ use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Settings for a [`RemoteSession`].
 pub struct SessionConfig {
+    /// The monitor to share, counted from 0.
     pub output_index: usize,
+    /// This machine's address on the local network.
     pub local_ip: IpAddr,
+    /// The UDP port for video and input. Forward it for direct internet connections. 0 picks a free port.
     pub udp_port: u16,
+    /// Your public address, if viewers connect from the internet.
     pub public_ip: Option<IpAddr>,
 }
 
@@ -43,6 +48,10 @@ struct Encoded {
 
 impl RemoteSession {
     /// Takes the browser's SDP offer and returns the session and the SDP answer to send back.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::WebRtc`] if the offer is invalid, or [`Error::Io`] if the UDP port cannot be bound.
     pub fn accept(offer: &str, config: &SessionConfig) -> Result<(Self, String), Error> {
         let offer = SdpOffer::from_sdp_string(offer).map_err(webrtc_error)?;
         let mut rtc = Rtc::builder().build(Instant::now());
@@ -68,7 +77,12 @@ impl RemoteSession {
         Ok((session, answer))
     }
 
-    /// Streams the screen and applies the viewer's input. Returns when the viewer disconnects.
+    /// Streams the screen and applies the viewer's input until the viewer disconnects.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::WebRtc`] if the viewer does not connect within 30 seconds,
+    /// or the capture or encoder error if either fails.
     pub fn run(mut self) -> Result<(), Error> {
         let keyframe = Arc::new(AtomicBool::new(true));
         let video = start_video(self.output_index, keyframe.clone());

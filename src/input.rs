@@ -28,10 +28,14 @@ const EXTENT: u32 = 10_000;
 const KEY_CAPSLOCK: u32 = 58;
 const LOCK: u32 = 1 << 1;
 
+/// A mouse button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseButton {
+    /// The left button.
     Left,
+    /// The right button.
     Right,
+    /// The middle button, usually the wheel.
     Middle,
 }
 
@@ -45,7 +49,9 @@ impl MouseButton {
     }
 }
 
-/// Controls the mouse and keyboard. The mouse is limited to one output (monitor).
+/// Controls the mouse and keyboard through virtual input devices.
+///
+/// The mouse covers one monitor.
 pub struct Input {
     conn: Connection,
     _queue: EventQueue<State>,
@@ -57,6 +63,14 @@ pub struct Input {
 }
 
 impl Input {
+    /// Creates a virtual mouse and keyboard.
+    ///
+    /// The mouse covers the monitor at `output_index`. The keyboard uses the compositor's current keymap.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unsupported`] if the compositor lacks the virtual pointer or keyboard protocols,
+    /// or [`Error::OutputNotFound`] if there is no monitor at `output_index`.
     pub fn new(output_index: usize) -> Result<Self, Error> {
         let conn = Connection::connect_to_env()?;
         let mut queue = conn.new_event_queue::<State>();
@@ -112,6 +126,7 @@ impl Input {
         self.flush()
     }
 
+    /// Presses or releases a mouse button.
     pub fn button(&mut self, button: MouseButton, pressed: bool) -> Result<(), Error> {
         let state = if pressed {
             ButtonState::Pressed
@@ -136,8 +151,9 @@ impl Input {
         self.flush()
     }
 
-    /// Presses or releases a key. `code` is a Linux key code, for example 30 for A.
-    /// The list is in `linux/input-event-codes.h`.
+    /// Presses or releases a key.
+    ///
+    /// `code` is a Linux key code, for example 30 for A. The list is in `linux/input-event-codes.h`.
     pub fn key(&mut self, code: u32, pressed: bool) -> Result<(), Error> {
         let state = if pressed {
             wl_keyboard::KeyState::Pressed

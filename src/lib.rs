@@ -1,3 +1,28 @@
+//! Screen capture, H.264 encoding, streaming and input for Wayland compositors.
+//!
+//! - [`Capture`] grabs frames from a monitor.
+//! - [`Encoder`] turns frames into H.264, on the GPU when possible.
+//! - [`Input`] moves the mouse and presses keys.
+//! - [`RtpSender`] streams H.264 over RTP.
+//! - [`AccessToken`] is a random secret for viewer login.
+//! - `RemoteSession` streams to a browser over WebRTC and applies its input (feature `webrtc`).
+//!
+//! Cargo features: `ffmpeg` for GPU encoding with VA-API or NVENC, and `webrtc`.
+//!
+//! ```no_run
+//! # fn main() -> Result<(), wl_cast::Error> {
+//! let mut capture = wl_cast::Capture::new(0)?;
+//! let (width, height) = capture.size();
+//! let mut encoder = wl_cast::Encoder::new(width, height)?;
+//!
+//! let frame = capture.next_frame()?;
+//! let h264 = encoder.encode(&frame)?;
+//! # Ok(())
+//! # }
+//! ```
+
+#![warn(missing_docs)]
+
 mod auth;
 mod capture;
 mod encode;

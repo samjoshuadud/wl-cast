@@ -21,6 +21,7 @@ enum Backend {
 }
 
 impl Encoder {
+    /// Opens an encoder for frames of exactly `width` by `height` pixels.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
         #[cfg(feature = "ffmpeg")]
         if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(width, height) {
@@ -38,7 +39,7 @@ impl Encoder {
         })
     }
 
-    /// Which encoder is in use, for example `h264_vaapi` or `openh264`.
+    /// Returns the name of the encoder in use, for example `h264_vaapi` or `openh264`.
     pub fn name(&self) -> &'static str {
         match &self.backend {
             #[cfg(feature = "ffmpeg")]
@@ -57,6 +58,11 @@ impl Encoder {
     }
 
     /// Returns the frame as H.264 bytes, ready to append to a `.h264` file or stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidFrame`] if the frame size does not match the encoder,
+    /// or [`Error::Encode`] if the encoder fails.
     pub fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
         let expected = (self.width as usize)
             .saturating_mul(self.height as usize)

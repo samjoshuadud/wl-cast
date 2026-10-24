@@ -8,6 +8,7 @@ pub struct AccessToken {
 }
 
 impl AccessToken {
+    /// Generates a new random token.
     pub fn generate() -> Result<Self, Error> {
         let mut bytes = [0u8; 16];
         File::open("/dev/urandom")?.read_exact(&mut bytes)?;
@@ -15,10 +16,12 @@ impl AccessToken {
         Ok(Self { value })
     }
 
+    /// Returns the token as text.
     pub fn as_str(&self) -> &str {
         &self.value
     }
 
+    /// Returns true only for an exact match, compared in constant time.
     pub fn verify(&self, candidate: &str) -> bool {
         let (expected, candidate) = (self.value.as_bytes(), candidate.as_bytes());
         if expected.len() != candidate.len() {

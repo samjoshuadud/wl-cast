@@ -29,7 +29,7 @@ use wayland_protocols::ext::{
 
 use crate::{Error, Frame};
 
-/// Captures frames from one output (monitor).
+/// Captures frames from one monitor.
 pub struct Capture {
     queue: EventQueue<State>,
     state: State,
@@ -41,7 +41,12 @@ pub struct Capture {
 }
 
 impl Capture {
-    /// Starts capturing the output at `output_index`, where 0 is the first monitor.
+    /// Starts capturing the monitor at `output_index`, where 0 is the first monitor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Connect`] if there is no compositor, [`Error::Unsupported`] if it lacks
+    /// ext-image-copy-capture, or [`Error::OutputNotFound`] if there is no monitor at `output_index`.
     pub fn new(output_index: usize) -> Result<Self, Error> {
         let conn = Connection::connect_to_env()?;
         let mut queue = conn.new_event_queue::<State>();
@@ -113,11 +118,16 @@ impl Capture {
         })
     }
 
+    /// Returns the width and height in pixels of every frame.
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    /// Waits for the next frame. Blocks while the screen is idle.
+    /// Waits for the next frame, which blocks while the screen is idle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture, for example after the monitor changes.
     pub fn next_frame(&mut self) -> Result<Frame, Error> {
         self.state.frame_ready = false;
         self.state.frame_failed = false;

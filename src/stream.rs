@@ -10,7 +10,7 @@ const PAYLOAD_TYPE: u8 = 96;
 const CLOCK_RATE: f64 = 90_000.0;
 const FU_A: u8 = 28;
 
-/// Sends H.264 video as RTP packets over UDP.
+/// Sends H.264 video over RTP.
 pub struct RtpSender {
     socket: UdpSocket,
     destination: SocketAddr,
@@ -20,6 +20,11 @@ pub struct RtpSender {
 }
 
 impl RtpSender {
+    /// Creates a sender for `destination`, for example `192.168.1.5:5004`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidAddress`] if `destination` cannot be resolved.
     pub fn new(destination: impl ToSocketAddrs) -> Result<Self, Error> {
         let destination = destination
             .to_socket_addrs()?
@@ -39,7 +44,7 @@ impl RtpSender {
         })
     }
 
-    /// The SDP file a player such as ffplay needs to receive this stream.
+    /// Returns the SDP text a player such as ffplay needs to receive the stream.
     pub fn sdp(&self) -> String {
         let ip = self.destination.ip();
         let family = if ip.is_ipv4() { "IP4" } else { "IP6" };

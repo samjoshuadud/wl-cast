@@ -7,6 +7,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Documented the whole public API, with `# Errors` sections, and added crate docs with a compile-checked example.
+- Added the `repository` field to `Cargo.toml`.
+
 ## [0.1.0] - 2026-10-24
 
 ### Added
