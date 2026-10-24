@@ -20,6 +20,8 @@ use str0m::{
 
 use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct SessionConfig {
     pub output_index: usize,
     pub local_ip: IpAddr,
@@ -78,6 +80,10 @@ impl RemoteSession {
         let mut buffer = vec![0; 2000];
 
         loop {
+            if connect_timed_out(connected, start.elapsed()) {
+                return Err(webrtc_error("viewer did not connect in time"));
+            }
+
             let timeout = match self.rtc.poll_output().map_err(webrtc_error)? {
                 Output::Timeout(timeout) => timeout,
                 Output::Transmit(transmit) => {
@@ -306,6 +312,10 @@ fn apply(input: &mut Input, event: ViewerEvent) -> Result<(), Error> {
     }
 }
 
+fn connect_timed_out(connected: bool, waited: Duration) -> bool {
+    !connected && waited > CONNECT_TIMEOUT
+}
+
 fn webrtc_error(error: impl std::fmt::Display) -> Error {
     Error::WebRtc(error.to_string())
 }
@@ -385,6 +395,13 @@ mod tests {
     fn answer_has_no_public_address_by_default() {
         let (_session, answer) = RemoteSession::accept(&browser_offer(), &config(None)).unwrap();
         assert!(!answer.contains("203.0.113.7"));
+    }
+
+    #[test]
+    fn gives_up_only_while_waiting_for_the_viewer() {
+        assert!(!connect_timed_out(false, Duration::from_secs(29)));
+        assert!(connect_timed_out(false, Duration::from_secs(31)));
+        assert!(!connect_timed_out(true, Duration::from_secs(600)));
     }
 
     #[test]
