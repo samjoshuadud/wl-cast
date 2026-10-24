@@ -7,6 +7,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `Capture` falls back to wlr-screencopy when the compositor lacks ext-image-copy-capture. This adds niri.
+- The `WL_CAST_CAPTURE` environment variable forces a capture backend: `ext` or `wlr`.
+- Tested on niri, Sway, labwc and river, in addition to Hyprland.
+
+### Fixed
+
+- Frames from rotated or flipped monitors now come out the right way up. `Capture::size` returns the size after rotation.
+- `Capture` accepts Xbgr8888 and Abgr8888 buffers, which some wlroots compositors such as Sway offer instead of Xrgb8888.
+
 ### Changed
 
 - Documented the whole public API, with `# Errors` sections, and added crate docs with a compile-checked example.

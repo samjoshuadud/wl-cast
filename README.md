@@ -2,7 +2,7 @@
 
 Screen capture, encoding and input for Wayland compositors, as a Rust library.
 
-Status: first release. Tested on Hyprland only. The API can still change in 0.x releases.
+Status: early. Tested on Hyprland, niri, Sway, labwc and river. The API can still change in 0.x releases.
 
 ## Goal
 
@@ -30,11 +30,21 @@ let h264 = encoder.encode(&frame)?;
 
 ## Compositor support
 
-| Compositor | Status |
-|---|---|
-| Hyprland | Works (tested) |
-| Sway and other wlroots-based | Not tested. Needs the ext-image-copy-capture and virtual pointer and keyboard protocols. |
-| GNOME, KDE (via xdg-desktop-portal) | Planned |
+wl-cast picks a backend by what the compositor offers, not by its name. Capture uses ext-image-copy-capture when available, otherwise wlr-screencopy. Input uses the wlr virtual pointer and the virtual keyboard.
+
+| Compositor | Tested version | Capture | Input | Status |
+|---|---|---|---|---|
+| Hyprland | 0.56.2 | ext, wlr | yes | Works |
+| niri | 26.04 | wlr | yes | Works |
+| Sway | 1.12 | ext, wlr | yes | Works |
+| labwc | 0.20.2 | ext, wlr | yes | Works |
+| river | 0.3.17 (river-classic) | ext, wlr | yes | Works |
+| COSMIC | - | ext | keyboard only | Not tested. Mouse needs the portal backend. |
+| GNOME, KDE | - | - | - | Planned, through xdg-desktop-portal |
+
+Hyprland was tested directly. The others were tested running nested inside Hyprland.
+
+To force a capture backend, set `WL_CAST_CAPTURE=ext` or `WL_CAST_CAPTURE=wlr`.
 
 ## Build
 
@@ -85,7 +95,7 @@ The viewer sends one text line per event on a data channel named `input`.
 
 ## Known limits
 
-- Linux and Wayland only. Tested on Hyprland only.
+- Linux and Wayland only. GNOME and KDE are not supported yet.
 - One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
 - Changing or unplugging a monitor during a session is not handled and is untested.
 - No audio, clipboard or multi-monitor switching.
