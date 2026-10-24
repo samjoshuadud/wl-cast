@@ -67,12 +67,7 @@ impl ExtCapture {
         let shm = state.shm.as_ref().ok_or(Error::Unsupported("wl_shm"))?;
         let (file, buffer) = shm_buffer(shm, &qh, width, height, width * 4, format)?;
 
-        let output_transform = state
-            .output_transforms
-            .get(output_index)
-            .copied()
-            .unwrap_or(Transform::Normal);
-        let size = oriented_size(width, height, output_transform);
+        let size = oriented_size(width, height, state.output_transform(output_index));
 
         Ok(Self {
             queue,

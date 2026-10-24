@@ -234,6 +234,13 @@ impl State {
     fn has_wlr(&self) -> bool {
         self.wlr_manager.is_some()
     }
+
+    fn output_transform(&self, index: usize) -> Transform {
+        self.output_transforms
+            .get(index)
+            .copied()
+            .unwrap_or(Transform::Normal)
+    }
 }
 
 impl Dispatch<WlRegistry, ()> for State {
@@ -345,6 +352,16 @@ mod tests {
     #[test]
     fn an_unknown_preference_is_ignored() {
         assert!(matches!(choose(Some("other"), false, true), Ok(Kind::Wlr)));
+    }
+
+    #[test]
+    fn an_unknown_output_has_no_transform() {
+        let state = State {
+            output_transforms: vec![Transform::_90],
+            ..State::default()
+        };
+        assert_eq!(state.output_transform(0), Transform::_90);
+        assert_eq!(state.output_transform(1), Transform::Normal);
     }
 
     #[test]

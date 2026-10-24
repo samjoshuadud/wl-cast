@@ -78,11 +78,7 @@ impl WlrCapture {
     }
 
     fn transform(&self) -> Transform {
-        self.state
-            .output_transforms
-            .get(self.output_index)
-            .copied()
-            .unwrap_or(Transform::Normal)
+        self.state.output_transform(self.output_index)
     }
 
     pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
