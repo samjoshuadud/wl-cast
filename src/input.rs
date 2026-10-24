@@ -90,7 +90,7 @@ impl Input {
         ))?;
         let pointer = manager.create_virtual_pointer_with_output(None, Some(output), &qh, ());
 
-        let seat = state.seat.as_ref().ok_or(Error::Unsupported("wl_seat"))?;
+        let seat = state.seat.clone().ok_or(Error::Unsupported("wl_seat"))?;
         seat.get_keyboard(&qh, ());
         queue.roundtrip(&mut state)?;
 
@@ -98,12 +98,11 @@ impl Input {
             .keymap
             .take()
             .ok_or(Error::Unsupported("XKB keymap"))?;
-        let seat = state.seat.as_ref().ok_or(Error::Unsupported("wl_seat"))?;
         let keyboard_manager = state
             .keyboard_manager
             .as_ref()
             .ok_or(Error::Unsupported("zwp_virtual_keyboard_manager_v1"))?;
-        let keyboard = keyboard_manager.create_virtual_keyboard(seat, &qh, ());
+        let keyboard = keyboard_manager.create_virtual_keyboard(&seat, &qh, ());
         keyboard.keymap(KeymapFormat::XkbV1.into(), keymap.as_fd(), keymap_size);
 
         Ok(Self {
