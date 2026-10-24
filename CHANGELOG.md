@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Breaking: `Error`, `Frame` and `SessionConfig` are `#[non_exhaustive]`. Build a frame with `Frame::new` and session settings with `SessionConfig::new`.
 - Breaking: `Input::button` and `Input::key` take a `PressState` instead of a bool.
+- Breaking: `Error::Connect` and `Error::Dispatch` carry the reason as text. They no longer expose `wayland-client` types.
 
 ### Added
 

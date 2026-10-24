@@ -3,11 +3,15 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Could not connect to the Wayland compositor.
+    ///
+    /// The string is the underlying reason.
     #[error("failed to connect to the Wayland compositor")]
-    Connect(#[from] wayland_client::ConnectError),
+    Connect(String),
     /// The Wayland connection failed.
+    ///
+    /// The string is the underlying reason.
     #[error("Wayland connection error")]
-    Dispatch(#[from] wayland_client::DispatchError),
+    Dispatch(String),
     /// An I/O error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -33,4 +37,35 @@ pub enum Error {
     #[cfg(feature = "webrtc")]
     #[error("WebRTC error: {0}")]
     WebRtc(String),
+}
+
+impl From<wayland_client::ConnectError> for Error {
+    fn from(error: wayland_client::ConnectError) -> Self {
+        Error::Connect(error.to_string())
+    }
+}
+
+impl From<wayland_client::DispatchError> for Error {
+    fn from(error: wayland_client::DispatchError) -> Self {
+        Error::Dispatch(error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_and_dispatch_keep_a_stable_message() {
+        let connect = Error::Connect("no display".into());
+        assert_eq!(
+            connect.to_string(),
+            "failed to connect to the Wayland compositor"
+        );
+        assert!(format!("{connect:?}").contains("no display"));
+
+        let dispatch = Error::Dispatch("connection lost".into());
+        assert_eq!(dispatch.to_string(), "Wayland connection error");
+        assert!(format!("{dispatch:?}").contains("connection lost"));
+    }
 }

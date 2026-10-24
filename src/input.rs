@@ -210,7 +210,9 @@ impl Input {
     }
 
     fn flush(&self) -> Result<(), Error> {
-        self.conn.flush().map_err(|e| Error::Dispatch(e.into()))
+        self.conn
+            .flush()
+            .map_err(|error| Error::Dispatch(error.to_string()))
     }
 }
 
