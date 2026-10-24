@@ -2,7 +2,7 @@
 
 Screen capture, encoding and input for Wayland compositors, as a Rust library.
 
-Status: early development. Screen capture, H.264 encoding, RTP streaming, mouse and keyboard input work on Hyprland.
+Status: first release. Tested on Hyprland only. The API can still change in 0.x releases.
 
 ## Goal
 
@@ -13,12 +13,27 @@ One library that apps and compositors can use to:
 - stream it to another device
 - inject keyboard and mouse input
 
+## Quick example
+
+```rust
+use wl_cast::{Capture, Encoder};
+
+let mut capture = Capture::new(0)?;
+let (width, height) = capture.size();
+let mut encoder = Encoder::new(width, height)?;
+
+let frame = capture.next_frame()?;
+let h264 = encoder.encode(&frame)?;
+```
+
+`Input` moves the mouse and presses keys. `RtpSender` and `RemoteSession` send the video out. The `examples` folder has a runnable demo for each.
+
 ## Compositor support
 
 | Compositor | Status |
 |---|---|
-| Hyprland | Capture, encoding, streaming, mouse and keyboard work |
-| Sway and other wlroots-based | Planned |
+| Hyprland | Works (tested) |
+| Sway and other wlroots-based | Not tested. Needs the ext-image-copy-capture and virtual pointer and keyboard protocols. |
 | GNOME, KDE (via xdg-desktop-portal) | Planned |
 
 ## Build
@@ -65,6 +80,16 @@ The viewer sends one text line per event on a data channel named `input`.
 | `b N S` | Mouse button N (0 left, 1 middle, 2 right). S is 1 for down, 0 for up. |
 | `w DX DY` | Scroll by pixels. |
 | `k CODE S` | Key with Linux key code CODE. S is 1 for down, 0 for up. |
+
+## Known limits
+
+- Linux and Wayland only. Tested on Hyprland only.
+- One viewer at a time, and the session ends when the viewer leaves.
+- No audio, clipboard or multi-monitor switching.
+- GPU encoding with NVENC (Nvidia) is untested. VA-API (Intel, AMD) is tested on AMD.
+- Software encoding is slow on busy full-screen video (about 10 frames per second at 1080p).
+- Internet access is direct only: port forwarding or a VPN. There is no relay server.
+- The example web page uses plain HTTP. Do not expose it on untrusted networks without a VPN or an HTTPS proxy.
 
 ## License
 
