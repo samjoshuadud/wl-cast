@@ -26,6 +26,10 @@ impl SoftwareEncoder {
         Ok(Self { inner })
     }
 
+    pub(crate) fn request_keyframe(&mut self) {
+        self.inner.force_intra_frame();
+    }
+
     pub(crate) fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
         let size = (frame.width as usize, frame.height as usize);
         let yuv = YUVBuffer::from_bgra8_source(BgraSliceU8::new(&frame.data, size));

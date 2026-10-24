@@ -42,6 +42,15 @@ impl Encoder {
         }
     }
 
+    /// Makes the next encoded frame a full picture, so a new viewer can start decoding.
+    pub fn request_keyframe(&mut self) {
+        match &mut self.backend {
+            #[cfg(feature = "ffmpeg")]
+            Backend::Hardware(encoder) => encoder.request_keyframe(),
+            Backend::Software(encoder) => encoder.request_keyframe(),
+        }
+    }
+
     /// Returns the frame as H.264 bytes, ready to append to a `.h264` file or stream.
     pub fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
         match &mut self.backend {

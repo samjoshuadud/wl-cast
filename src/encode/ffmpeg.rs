@@ -2,7 +2,7 @@ use std::ptr;
 
 use ffmpeg_next::{
     self as ffmpeg, Dictionary, Packet, Rational, codec, encoder, ffi, format::Pixel, frame,
-    software::scaling,
+    picture, software::scaling,
 };
 
 use crate::{Error, Frame};
@@ -17,6 +17,7 @@ pub(crate) struct HardwareEncoder {
     nv12: frame::Video,
     gpu_frames: Option<GpuFrames>,
     pts: i64,
+    keyframe_requested: bool,
 }
 
 impl HardwareEncoder {
@@ -63,6 +64,7 @@ impl HardwareEncoder {
             options.set("preset", "p1");
             options.set("tune", "ull");
             options.set("delay", "0");
+            options.set("forced-idr", "1");
         }
 
         let encoder = video.open_as_with(codec, options).map_err(ffmpeg_error)?;
@@ -85,11 +87,16 @@ impl HardwareEncoder {
             nv12: frame::Video::new(Pixel::NV12, width, height),
             gpu_frames,
             pts: 0,
+            keyframe_requested: false,
         })
     }
 
     pub(crate) fn name(&self) -> &'static str {
         self.name
+    }
+
+    pub(crate) fn request_keyframe(&mut self) {
+        self.keyframe_requested = true;
     }
 
     pub(crate) fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
@@ -110,6 +117,10 @@ impl HardwareEncoder {
         };
         input.set_pts(Some(self.pts));
         self.pts += 1;
+        if self.keyframe_requested {
+            input.set_kind(picture::Type::I);
+            self.keyframe_requested = false;
+        }
 
         self.encoder.send_frame(&input).map_err(ffmpeg_error)?;
 
