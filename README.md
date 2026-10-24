@@ -38,6 +38,8 @@ let h264 = encoder.encode(&frame)?;
 
 ## Build
 
+Needs Rust 1.89 or newer.
+
 ```sh
 cargo build
 cargo test
@@ -84,12 +86,15 @@ The viewer sends one text line per event on a data channel named `input`.
 ## Known limits
 
 - Linux and Wayland only. Tested on Hyprland only.
-- One viewer at a time, and the session ends when the viewer leaves.
+- One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
+- Changing or unplugging a monitor during a session is not handled and is untested.
 - No audio, clipboard or multi-monitor switching.
 - GPU encoding with NVENC (Nvidia) is untested. VA-API (Intel, AMD) is tested on AMD.
 - Software encoding is slow on busy full-screen video (about 10 frames per second at 1080p).
 - Internet access is direct only: port forwarding or a VPN. There is no relay server.
 - The example web page uses plain HTTP. Do not expose it on untrusted networks without a VPN or an HTTPS proxy.
+- The example web server is for demos. One slow client can stall it.
+- The software encoder is OpenH264 built from source. Cisco's patent license covers only their prebuilt binaries, so check the H.264 licensing before you distribute binaries.
 
 ## License
 
