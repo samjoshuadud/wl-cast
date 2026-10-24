@@ -101,6 +101,24 @@ fn choose(preference: Option<&str>, ext: bool, wlr: bool) -> Result<Kind, Error>
     }
 }
 
+const FORMATS: [wl_shm::Format; 4] = [
+    wl_shm::Format::Xrgb8888,
+    wl_shm::Format::Argb8888,
+    wl_shm::Format::Xbgr8888,
+    wl_shm::Format::Abgr8888,
+];
+
+const FORMATS_ERROR: &str = "Xrgb8888, Argb8888, Xbgr8888 or Abgr8888 shared memory buffers";
+
+fn to_bgrx(mut data: Vec<u8>, format: wl_shm::Format) -> Vec<u8> {
+    if matches!(format, wl_shm::Format::Xbgr8888 | wl_shm::Format::Abgr8888) {
+        for pixel in data.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+        }
+    }
+    data
+}
+
 fn oriented_size(width: u32, height: u32, transform: Transform) -> (u32, u32) {
     if quarter_turns(transform) % 2 == 1 {
         (height, width)
@@ -286,6 +304,17 @@ mod tests {
     #[test]
     fn an_unknown_preference_is_ignored() {
         assert!(matches!(choose(Some("other"), false, true), Ok(Kind::Wlr)));
+    }
+
+    #[test]
+    fn red_and_blue_are_swapped_only_for_bgr_formats() {
+        let pixel = vec![1, 2, 3, 4];
+        for format in [wl_shm::Format::Xbgr8888, wl_shm::Format::Abgr8888] {
+            assert_eq!(to_bgrx(pixel.clone(), format), [3, 2, 1, 4]);
+        }
+        for format in [wl_shm::Format::Xrgb8888, wl_shm::Format::Argb8888] {
+            assert_eq!(to_bgrx(pixel.clone(), format), pixel);
+        }
     }
 
     fn pixels(values: &[u8]) -> Vec<u8> {

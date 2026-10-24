@@ -15,7 +15,7 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
-use super::{State, orient, oriented_size};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, to_bgrx};
 use crate::{Error, Frame};
 
 pub(super) struct ExtCapture {
@@ -24,6 +24,7 @@ pub(super) struct ExtCapture {
     session: ExtImageCopyCaptureSessionV1,
     buffer: WlBuffer,
     file: File,
+    format: wl_shm::Format,
     width: u32,
     height: u32,
     size: (u32, u32),
@@ -61,10 +62,10 @@ impl ExtCapture {
             queue.blocking_dispatch(&mut state)?;
         }
 
-        let format = wl_shm::Format::Xrgb8888;
-        if !state.ext_formats.contains(&format) {
-            return Err(Error::Unsupported("Xrgb8888 shared memory buffers"));
-        }
+        let format = FORMATS
+            .into_iter()
+            .find(|format| state.ext_formats.contains(format))
+            .ok_or(Error::Unsupported(FORMATS_ERROR))?;
 
         let width = state.ext_width;
         let height = state.ext_height;
@@ -101,6 +102,7 @@ impl ExtCapture {
             session,
             buffer,
             file,
+            format,
             width,
             height,
             size,
@@ -141,7 +143,12 @@ impl ExtCapture {
         Ok(Frame {
             width: self.size.0,
             height: self.size.1,
-            data: orient(data, self.width, self.height, transform),
+            data: orient(
+                to_bgrx(data, self.format),
+                self.width,
+                self.height,
+                transform,
+            ),
             captured_at: Instant::now(),
         })
     }

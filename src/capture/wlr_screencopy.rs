@@ -18,7 +18,7 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
-use super::{State, orient, oriented_size};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, to_bgrx};
 use crate::{Error, Frame};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -62,9 +62,7 @@ impl WlrCapture {
         probe.destroy();
 
         let WEnum::Value(format) = info.format else {
-            return Err(Error::Unsupported(
-                "Xrgb8888 or Argb8888 shared memory buffers",
-            ));
+            return Err(Error::Unsupported(FORMATS_ERROR));
         };
         let size = info.stride as usize * info.height as usize;
         let fd =
@@ -136,7 +134,10 @@ impl WlrCapture {
         let mut raw = vec![0; info.stride as usize * info.height as usize];
         self.file.read_exact_at(&mut raw, 0)?;
 
-        let rows = pack_rows(&raw, info.width, info.stride, self.state.wlr_y_invert);
+        let mut rows = pack_rows(&raw, info.width, info.stride, self.state.wlr_y_invert);
+        if let WEnum::Value(format) = info.format {
+            rows = to_bgrx(rows, format);
+        }
         let (width, height) = self.size();
         Ok(Frame {
             width,
@@ -181,13 +182,8 @@ fn request_frame(
 }
 
 fn check(info: BufferInfo) -> Result<(), Error> {
-    if !matches!(
-        info.format,
-        WEnum::Value(Format::Xrgb8888 | Format::Argb8888)
-    ) {
-        return Err(Error::Unsupported(
-            "Xrgb8888 or Argb8888 shared memory buffers",
-        ));
+    if !matches!(info.format, WEnum::Value(format) if FORMATS.contains(&format)) {
+        return Err(Error::Unsupported(FORMATS_ERROR));
     }
     let row = info.width.checked_mul(4);
     if info.width == 0 || info.height == 0 || row.is_none_or(|row| info.stride < row) {
@@ -275,8 +271,8 @@ mod tests {
     }
 
     #[test]
-    fn accepts_the_two_common_formats() {
-        for format in [Format::Xrgb8888, Format::Argb8888] {
+    fn accepts_rgb_and_bgr_formats() {
+        for format in FORMATS {
             assert!(check(info(WEnum::Value(format), 4, 4, 16)).is_ok());
         }
     }
