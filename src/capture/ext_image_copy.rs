@@ -6,31 +6,19 @@ use std::{
 
 use rustix::fs::{MemfdFlags, memfd_create};
 use wayland_client::{
-    Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop,
-    protocol::{
-        wl_buffer::WlBuffer,
-        wl_output::WlOutput,
-        wl_registry::{self, WlRegistry},
-        wl_shm::{self, WlShm},
-        wl_shm_pool::WlShmPool,
-    },
+    Connection, Dispatch, EventQueue, QueueHandle, WEnum,
+    protocol::{wl_buffer::WlBuffer, wl_shm},
 };
-use wayland_protocols::ext::{
-    image_capture_source::v1::client::{
-        ext_image_capture_source_v1::ExtImageCaptureSourceV1,
-        ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1,
-    },
-    image_copy_capture::v1::client::{
-        ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
-        ext_image_copy_capture_manager_v1::{self, ExtImageCopyCaptureManagerV1},
-        ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
-    },
+use wayland_protocols::ext::image_copy_capture::v1::client::{
+    ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
+    ext_image_copy_capture_manager_v1,
+    ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
+use super::State;
 use crate::{Error, Frame};
 
-/// Captures frames from one monitor.
-pub struct Capture {
+pub(super) struct ExtCapture {
     queue: EventQueue<State>,
     state: State,
     session: ExtImageCopyCaptureSessionV1,
@@ -40,31 +28,23 @@ pub struct Capture {
     height: u32,
 }
 
-impl Capture {
-    /// Starts capturing the monitor at `output_index`, where 0 is the first monitor.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Connect`] if there is no compositor, [`Error::Unsupported`] if it lacks
-    /// ext-image-copy-capture, or [`Error::OutputNotFound`] if there is no monitor at `output_index`.
-    pub fn new(output_index: usize) -> Result<Self, Error> {
-        let conn = Connection::connect_to_env()?;
-        let mut queue = conn.new_event_queue::<State>();
+impl ExtCapture {
+    pub(super) fn new(
+        mut queue: EventQueue<State>,
+        mut state: State,
+        output_index: usize,
+    ) -> Result<Self, Error> {
         let qh = queue.handle();
-        let mut state = State::default();
-
-        conn.display().get_registry(&qh, ());
-        queue.roundtrip(&mut state)?;
 
         let output = state
             .outputs
             .get(output_index)
             .ok_or(Error::OutputNotFound(output_index))?;
-        let source_manager = state.source_manager.as_ref().ok_or(Error::Unsupported(
+        let source_manager = state.ext_source_manager.as_ref().ok_or(Error::Unsupported(
             "ext_output_image_capture_source_manager_v1",
         ))?;
         let capture_manager = state
-            .capture_manager
+            .ext_capture_manager
             .as_ref()
             .ok_or(Error::Unsupported("ext_image_copy_capture_manager_v1"))?;
 
@@ -76,17 +56,17 @@ impl Capture {
             (),
         );
 
-        while !state.constraints_done {
+        while !state.ext_constraints_done {
             queue.blocking_dispatch(&mut state)?;
         }
 
         let format = wl_shm::Format::Xrgb8888;
-        if !state.formats.contains(&format) {
+        if !state.ext_formats.contains(&format) {
             return Err(Error::Unsupported("Xrgb8888 shared memory buffers"));
         }
 
-        let width = state.width;
-        let height = state.height;
+        let width = state.ext_width;
+        let height = state.ext_height;
         let stride = width * 4;
         let size = stride * height;
 
@@ -118,17 +98,11 @@ impl Capture {
         })
     }
 
-    /// Returns the width and height in pixels of every frame.
-    pub fn size(&self) -> (u32, u32) {
+    pub(super) fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    /// Waits for the next frame, which blocks while the screen is idle.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture, for example after the monitor changes.
-    pub fn next_frame(&mut self) -> Result<Frame, Error> {
+    pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
         self.state.frame_ready = false;
         self.state.frame_failed = false;
 
@@ -158,48 +132,6 @@ impl Capture {
     }
 }
 
-#[derive(Default)]
-struct State {
-    outputs: Vec<WlOutput>,
-    shm: Option<WlShm>,
-    source_manager: Option<ExtOutputImageCaptureSourceManagerV1>,
-    capture_manager: Option<ExtImageCopyCaptureManagerV1>,
-    width: u32,
-    height: u32,
-    formats: Vec<wl_shm::Format>,
-    constraints_done: bool,
-    frame_ready: bool,
-    frame_failed: bool,
-}
-
-impl Dispatch<WlRegistry, ()> for State {
-    fn event(
-        state: &mut Self,
-        registry: &WlRegistry,
-        event: wl_registry::Event,
-        _data: &(),
-        _conn: &Connection,
-        qh: &QueueHandle<Self>,
-    ) {
-        if let wl_registry::Event::Global {
-            name, interface, ..
-        } = event
-        {
-            match interface.as_str() {
-                "wl_output" => state.outputs.push(registry.bind(name, 1, qh, ())),
-                "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
-                "ext_output_image_capture_source_manager_v1" => {
-                    state.source_manager = Some(registry.bind(name, 1, qh, ()))
-                }
-                "ext_image_copy_capture_manager_v1" => {
-                    state.capture_manager = Some(registry.bind(name, 1, qh, ()))
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
 impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for State {
     fn event(
         state: &mut Self,
@@ -211,13 +143,13 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for State {
     ) {
         match event {
             ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
-                state.width = width;
-                state.height = height;
+                state.ext_width = width;
+                state.ext_height = height;
             }
             ext_image_copy_capture_session_v1::Event::ShmFormat {
                 format: WEnum::Value(format),
-            } => state.formats.push(format),
-            ext_image_copy_capture_session_v1::Event::Done => state.constraints_done = true,
+            } => state.ext_formats.push(format),
+            ext_image_copy_capture_session_v1::Event::Done => state.ext_constraints_done = true,
             _ => {}
         }
     }
@@ -239,11 +171,3 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for State {
         }
     }
 }
-
-delegate_noop!(State: ignore WlOutput);
-delegate_noop!(State: ignore WlShm);
-delegate_noop!(State: WlShmPool);
-delegate_noop!(State: ignore WlBuffer);
-delegate_noop!(State: ExtOutputImageCaptureSourceManagerV1);
-delegate_noop!(State: ExtImageCaptureSourceV1);
-delegate_noop!(State: ExtImageCopyCaptureManagerV1);
