@@ -19,7 +19,7 @@ use str0m::{
     net::{Protocol, Receive},
 };
 
-use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
+use crate::{Capture, Encoder, Error, Frame, Input, MouseButton, PressState};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -305,10 +305,22 @@ impl fmt::Debug for RemoteSession {
 
 #[derive(Debug, PartialEq)]
 enum ViewerEvent {
-    Move { x: f64, y: f64 },
-    Button { button: MouseButton, pressed: bool },
-    Scroll { dx: f64, dy: f64 },
-    Key { code: u32, pressed: bool },
+    Move {
+        x: f64,
+        y: f64,
+    },
+    Button {
+        button: MouseButton,
+        press: PressState,
+    },
+    Scroll {
+        dx: f64,
+        dy: f64,
+    },
+    Key {
+        code: u32,
+        press: PressState,
+    },
 }
 
 fn parse_viewer_event(message: &str) -> Option<ViewerEvent> {
@@ -327,7 +339,7 @@ fn parse_viewer_event(message: &str) -> Option<ViewerEvent> {
             };
             Some(ViewerEvent::Button {
                 button,
-                pressed: pressed(state)?,
+                press: press_state(state)?,
             })
         }
         ["w", dx, dy] => Some(ViewerEvent::Scroll {
@@ -336,7 +348,7 @@ fn parse_viewer_event(message: &str) -> Option<ViewerEvent> {
         }),
         ["k", code, state] => Some(ViewerEvent::Key {
             code: code.parse().ok()?,
-            pressed: pressed(state)?,
+            press: press_state(state)?,
         }),
         _ => None,
     }
@@ -346,10 +358,10 @@ fn finite(text: &str) -> Option<f64> {
     text.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
-fn pressed(text: &str) -> Option<bool> {
+fn press_state(text: &str) -> Option<PressState> {
     match text {
-        "1" => Some(true),
-        "0" => Some(false),
+        "1" => Some(PressState::Pressed),
+        "0" => Some(PressState::Released),
         _ => None,
     }
 }
@@ -357,9 +369,9 @@ fn pressed(text: &str) -> Option<bool> {
 fn apply(input: &mut Input, event: ViewerEvent) -> Result<(), Error> {
     match event {
         ViewerEvent::Move { x, y } => input.move_to(x, y),
-        ViewerEvent::Button { button, pressed } => input.button(button, pressed),
+        ViewerEvent::Button { button, press } => input.button(button, press),
         ViewerEvent::Scroll { dx, dy } => input.scroll(dx, dy),
-        ViewerEvent::Key { code, pressed } => input.key(code, pressed),
+        ViewerEvent::Key { code, press } => input.key(code, press),
     }
 }
 
@@ -411,7 +423,7 @@ mod tests {
             parse_viewer_event("b 2 1"),
             Some(ViewerEvent::Button {
                 button: MouseButton::Right,
-                pressed: true
+                press: PressState::Pressed
             })
         );
         assert_eq!(
@@ -422,7 +434,7 @@ mod tests {
             parse_viewer_event("k 30 0"),
             Some(ViewerEvent::Key {
                 code: 30,
-                pressed: false
+                press: PressState::Released
             })
         );
     }

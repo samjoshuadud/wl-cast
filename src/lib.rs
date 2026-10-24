@@ -2,7 +2,7 @@
 //!
 //! - [`Capture`] grabs frames from a monitor.
 //! - [`Encoder`] turns frames into H.264, on the GPU when possible.
-//! - [`Input`] moves the mouse and presses keys.
+//! - [`Input`] moves the mouse and presses keys. [`PressState`] says whether a button or key goes down or up.
 //! - [`RtpSender`] streams H.264 over RTP.
 //! - [`AccessToken`] is a random secret for viewer login.
 //! - `RemoteSession` streams to a browser over WebRTC and applies its input (feature `webrtc`).
@@ -38,7 +38,7 @@ pub use capture::Capture;
 pub use encode::Encoder;
 pub use error::Error;
 pub use frame::Frame;
-pub use input::{Input, MouseButton};
+pub use input::{Input, MouseButton, PressState};
 pub use stream::RtpSender;
 #[cfg(feature = "webrtc")]
 pub use webrtc::{RemoteSession, SessionConfig};

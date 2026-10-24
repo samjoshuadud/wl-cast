@@ -29,6 +29,15 @@ const EXTENT: u32 = 10_000;
 const KEY_CAPSLOCK: u32 = 58;
 const LOCK: u32 = 1 << 1;
 
+/// Whether a button or key is going down or coming up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PressState {
+    /// The button or key is going down.
+    Pressed,
+    /// The button or key is coming up.
+    Released,
+}
+
 /// A mouse button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MouseButton {
@@ -135,11 +144,10 @@ impl Input {
     /// # Errors
     ///
     /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn button(&mut self, button: MouseButton, pressed: bool) -> Result<(), Error> {
-        let state = if pressed {
-            ButtonState::Pressed
-        } else {
-            ButtonState::Released
+    pub fn button(&mut self, button: MouseButton, press: PressState) -> Result<(), Error> {
+        let state = match press {
+            PressState::Pressed => ButtonState::Pressed,
+            PressState::Released => ButtonState::Released,
         };
         self.pointer.button(self.time(), button.linux_code(), state);
         self.pointer.frame();
@@ -170,19 +178,19 @@ impl Input {
     /// # Errors
     ///
     /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn key(&mut self, code: u32, pressed: bool) -> Result<(), Error> {
-        let state = if pressed {
-            wl_keyboard::KeyState::Pressed
-        } else {
-            wl_keyboard::KeyState::Released
+    pub fn key(&mut self, code: u32, press: PressState) -> Result<(), Error> {
+        let state = match press {
+            PressState::Pressed => wl_keyboard::KeyState::Pressed,
+            PressState::Released => wl_keyboard::KeyState::Released,
         };
         self.keyboard.key(self.time(), code, state.into());
 
-        if code == KEY_CAPSLOCK && pressed {
+        let down = press == PressState::Pressed;
+        if code == KEY_CAPSLOCK && down {
             self.locked_modifiers ^= LOCK;
         } else if modifier_mask(code).is_some() {
             self.held_modifiers.retain(|&held| held != code);
-            if pressed {
+            if down {
                 self.held_modifiers.push(code);
             }
         }

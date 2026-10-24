@@ -1,6 +1,6 @@
 use std::{env, process::Command, thread, time::Duration};
 
-use wl_cast::{Capture, Input, MouseButton};
+use wl_cast::{Capture, Input, MouseButton, PressState};
 
 const KEY_A: u32 = 30;
 
@@ -25,11 +25,15 @@ fn captures_a_frame_and_sends_input() {
 
     let mut input = Input::new(0).unwrap();
     input.move_to(0.5, 0.5).unwrap();
-    input.button(MouseButton::Left, true).unwrap();
-    input.button(MouseButton::Left, false).unwrap();
+    input
+        .button(MouseButton::Left, PressState::Pressed)
+        .unwrap();
+    input
+        .button(MouseButton::Left, PressState::Released)
+        .unwrap();
     input.scroll(0.0, -1.0).unwrap();
-    input.key(KEY_A, true).unwrap();
-    input.key(KEY_A, false).unwrap();
+    input.key(KEY_A, PressState::Pressed).unwrap();
+    input.key(KEY_A, PressState::Released).unwrap();
 }
 
 #[test]
