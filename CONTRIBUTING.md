@@ -32,6 +32,9 @@ cargo test
 
 ## Code style
 
+- Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/checklist.html).
+- Document every public item the [rustdoc way](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html): a one-line summary, then `# Errors`, `# Panics` or `# Safety` sections where they apply.
+- Explain every `unsafe` block with a `// SAFETY:` comment.
 - No `unwrap`, `expect` or `panic!` in library code. Return `wl_cast::Error`.
 - Keep `unsafe` small.
 - Every logic change needs a test.
