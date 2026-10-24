@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- CI runs capture and input against a headless Sway.
+
 ## [0.1.2] - 2026-10-24
 
 ### Added

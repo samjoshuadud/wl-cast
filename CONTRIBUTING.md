@@ -19,7 +19,7 @@ cargo test
 cargo test --features ffmpeg,webrtc
 ```
 
-CI has no Wayland session. Code that talks to a compositor (`Capture`, `Input`) is tested by hand with the programs in `examples`.
+CI runs `Capture` and `Input` against a headless Sway, once for each capture backend. Other compositors are tested by hand with the programs in `examples`.
 
 ## Before you open a pull request
 

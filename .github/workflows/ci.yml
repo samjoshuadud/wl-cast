@@ -47,6 +47,15 @@ jobs:
       - run: cargo test --features webrtc
       - run: cargo doc --no-deps --features webrtc
 
+  compositor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: cachix/install-nix-action@v31
+      - run: .github/compositor.sh
+
   msrv:
     runs-on: ubuntu-latest
     steps:
