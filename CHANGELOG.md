@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Changed
 
 - Breaking: `Error`, `Frame` and `SessionConfig` are `#[non_exhaustive]`. Build a frame with `Frame::new` and session settings with `SessionConfig::new`.
