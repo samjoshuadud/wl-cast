@@ -20,6 +20,9 @@ pub(crate) struct HardwareEncoder {
     keyframe_requested: bool,
 }
 
+// SAFETY: the FFmpeg contexts inside have no thread affinity, and `&mut self` means only one thread uses them at a time.
+unsafe impl Send for HardwareEncoder {}
+
 impl HardwareEncoder {
     pub(crate) fn open_any(width: u32, height: u32) -> Option<Self> {
         ffmpeg::init().ok()?;

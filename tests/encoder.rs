@@ -66,3 +66,9 @@ fn accepts_a_frame_of_the_right_size_after_a_rejected_one() {
     assert!(encoder.encode(&raw_frame(64, 64, 100)).is_err());
     assert!(encoder.encode(&frame(100)).is_ok());
 }
+
+#[test]
+fn encoder_can_move_between_threads() {
+    fn assert_send<T: Send>() {}
+    assert_send::<Encoder>();
+}
