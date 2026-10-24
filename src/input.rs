@@ -30,7 +30,7 @@ const KEY_CAPSLOCK: u32 = 58;
 const LOCK: u32 = 1 << 1;
 
 /// A mouse button.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MouseButton {
     /// The left button.
     Left,

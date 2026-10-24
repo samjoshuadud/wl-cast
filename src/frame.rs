@@ -3,6 +3,7 @@ use std::{fmt, time::Instant};
 /// A captured screen image.
 ///
 /// Pixels are BGRX: 4 bytes each, blue, green, red, unused.
+#[derive(Clone)]
 pub struct Frame {
     /// Width in pixels.
     pub width: u32,

@@ -24,7 +24,7 @@ use crate::{Capture, Encoder, Error, Frame, Input, MouseButton};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Settings for a [`RemoteSession`].
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionConfig {
     /// The monitor to share, counted from 0.
     pub output_index: usize,
