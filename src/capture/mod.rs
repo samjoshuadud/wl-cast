@@ -1,11 +1,26 @@
 mod ext_image_copy;
 mod wlr_screencopy;
 
-use std::{fmt, fs::File, os::fd::AsFd};
+use std::{
+    fmt,
+    fs::File,
+    io::ErrorKind,
+    os::fd::AsFd,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use rustix::fs::{MemfdFlags, memfd_create};
+use rustix::{
+    event::{PollFd, PollFlags, Timespec, poll},
+    io::Errno,
+};
 use wayland_client::{
-    Connection, Dispatch, QueueHandle, WEnum, delegate_noop,
+    Connection, Dispatch, EventQueue, QueueHandle, WEnum,
+    backend::WaylandError,
+    delegate_noop,
     protocol::{
         wl_buffer::WlBuffer,
         wl_output::{self, Transform, WlOutput},
@@ -24,6 +39,46 @@ use wayland_protocols::ext::{
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
 
 use crate::{Error, Frame};
+
+const STOP_WAIT: Timespec = Timespec {
+    tv_sec: 0,
+    tv_nsec: 200_000_000,
+};
+
+/// Stops a blocking [`Capture::next_frame`] or a remote session from another thread.
+#[derive(Clone, Debug)]
+pub struct StopHandle {
+    stop: Arc<AtomicBool>,
+}
+
+impl StopHandle {
+    /// Creates a handle that is not stopped.
+    pub fn new() -> Self {
+        Self {
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Unblocks whoever is waiting on this handle.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    #[cfg(any(test, feature = "webrtc"))]
+    pub(crate) fn is_stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.stop)
+    }
+}
+
+impl Default for StopHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Captures frames from one monitor.
 pub struct Capture {
@@ -80,11 +135,23 @@ impl Capture {
         }
     }
 
+    /// Unblocks [`Capture::next_frame`] when `handle` is stopped, even if the screen is idle.
+    ///
+    /// Without this, [`Capture::next_frame`] waits until the screen changes.
+    pub fn set_stop_handle(&mut self, handle: &StopHandle) {
+        let flag = handle.flag();
+        match &mut self.backend {
+            Backend::Ext(capture) => capture.set_stop(flag),
+            Backend::Wlr(capture) => capture.set_stop(flag),
+        }
+    }
+
     /// Waits for the next frame, which blocks while the screen is idle.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture.
+    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture, or [`Error::Stopped`]
+    /// if a handle from [`Capture::set_stop_handle`] was stopped.
     pub fn next_frame(&mut self) -> Result<Frame, Error> {
         match &mut self.backend {
             Backend::Ext(capture) => capture.next_frame(),
@@ -117,6 +184,50 @@ fn choose(preference: Option<&str>, ext: bool, wlr: bool) -> Result<Kind, Error>
         _ => Err(Error::Unsupported(
             "ext-image-copy-capture or wlr-screencopy",
         )),
+    }
+}
+
+fn wait_for(
+    queue: &mut EventQueue<State>,
+    state: &mut State,
+    stop: Option<&AtomicBool>,
+    ready: impl Fn(&State) -> bool,
+) -> Result<(), Error> {
+    if stop.is_none() {
+        while !ready(state) {
+            queue.blocking_dispatch(state)?;
+        }
+        return Ok(());
+    }
+
+    loop {
+        if stop.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(Error::Stopped);
+        }
+        if ready(state) {
+            return Ok(());
+        }
+        if queue.dispatch_pending(state)? > 0 {
+            continue;
+        }
+        queue
+            .flush()
+            .map_err(|error| Error::Dispatch(error.to_string()))?;
+        let Some(guard) = queue.prepare_read() else {
+            continue;
+        };
+        let fd = guard.connection_fd();
+        let mut fds = [PollFd::new(&fd, PollFlags::IN | PollFlags::ERR)];
+        match poll(&mut fds, Some(&STOP_WAIT)) {
+            Ok(0) => continue,
+            Ok(_) => match guard.read() {
+                Ok(_) => {}
+                Err(WaylandError::Io(error)) if error.kind() == ErrorKind::WouldBlock => {}
+                Err(error) => return Err(Error::Dispatch(error.to_string())),
+            },
+            Err(Errno::INTR) => continue,
+            Err(error) => return Err(Error::Io(error.into())),
+        }
     }
 }
 
@@ -341,6 +452,15 @@ delegate_noop!(State: ZwlrScreencopyManagerV1);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopping_a_clone_stops_the_original_handle() {
+        let handle = StopHandle::new();
+        let clone = handle.clone();
+        assert!(!handle.is_stopped());
+        clone.stop();
+        assert!(handle.is_stopped());
+    }
 
     #[test]
     fn prefers_ext_when_both_are_offered() {

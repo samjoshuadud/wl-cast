@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - `EncoderConfig` and `Encoder::with_config` set the bitrate, frame rate and H.264 profile. `Encoder::new` still uses 8 Mbit/s and 60 frames per second.
 - `SessionConfig.encoder` passes those settings into a WebRTC session.
+- `StopHandle` stops a WebRTC session from another thread. `RemoteSession::take_events` reports when a viewer connects or disconnects. `Capture::set_stop_handle` unblocks `next_frame` while the screen is idle, including after the viewer leaves.
 
 ## [0.2.0] - 2026-10-25
 

@@ -1,4 +1,9 @@
-use std::{fs::File, os::unix::fs::FileExt, time::Instant};
+use std::{
+    fs::File,
+    os::unix::fs::FileExt,
+    sync::{Arc, atomic::AtomicBool},
+    time::Instant,
+};
 
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
@@ -13,7 +18,7 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
-use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx, wait_for};
 use crate::{Error, Frame};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -33,6 +38,7 @@ pub(super) struct WlrCapture {
     info: BufferInfo,
     file: File,
     buffer: WlBuffer,
+    stop: Option<Arc<AtomicBool>>,
 }
 
 impl WlrCapture {
@@ -53,7 +59,7 @@ impl WlrCapture {
             .ok_or(Error::Unsupported("wlr-screencopy"))?;
         let shm = state.shm.clone().ok_or(Error::Unsupported("wl_shm"))?;
 
-        let (probe, info) = request_frame(&mut queue, &mut state, &manager, &output)?;
+        let (probe, info) = request_frame(&mut queue, &mut state, &manager, &output, None)?;
         probe.destroy();
 
         let WEnum::Value(format) = info.format else {
@@ -70,7 +76,12 @@ impl WlrCapture {
             info,
             file,
             buffer,
+            stop: None,
         })
+    }
+
+    pub(super) fn set_stop(&mut self, stop: Arc<AtomicBool>) {
+        self.stop = Some(stop);
     }
 
     pub(super) fn size(&self) -> (u32, u32) {
@@ -82,11 +93,13 @@ impl WlrCapture {
     }
 
     pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
+        let stop = self.stop.clone();
         let (frame, info) = request_frame(
             &mut self.queue,
             &mut self.state,
             &self.manager,
             &self.output,
+            stop.as_deref(),
         )?;
         if info != self.info {
             let WEnum::Value(format) = info.format else {
@@ -107,9 +120,9 @@ impl WlrCapture {
         } else {
             frame.copy(&self.buffer);
         }
-        while !self.state.frame_ready && !self.state.frame_failed {
-            self.queue.blocking_dispatch(&mut self.state)?;
-        }
+        wait_for(&mut self.queue, &mut self.state, stop.as_deref(), |state| {
+            state.frame_ready || state.frame_failed
+        })?;
         frame.destroy();
 
         if self.state.frame_failed {
@@ -138,6 +151,7 @@ fn request_frame(
     state: &mut State,
     manager: &ZwlrScreencopyManagerV1,
     output: &WlOutput,
+    stop: Option<&AtomicBool>,
 ) -> Result<(ZwlrScreencopyFrameV1, BufferInfo), Error> {
     state.wlr_buffer = None;
     state.wlr_buffer_done = false;
@@ -162,7 +176,10 @@ fn request_frame(
                 }
             };
         }
-        queue.blocking_dispatch(state)?;
+        wait_for(queue, state, stop, |state| {
+            state.frame_failed
+                || (state.wlr_buffer.is_some() && (state.wlr_version < 3 || state.wlr_buffer_done))
+        })?;
     }
 }
 

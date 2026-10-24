@@ -24,6 +24,9 @@ pub enum Error {
     /// The compositor could not capture the frame.
     #[error("frame capture failed")]
     CaptureFailed,
+    /// A caller stopped capture or the remote session.
+    #[error("stopped")]
+    Stopped,
     /// The frame size does not match the encoder.
     #[error("frame size does not match the encoder")]
     InvalidFrame,

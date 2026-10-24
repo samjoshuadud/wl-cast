@@ -19,7 +19,9 @@ use str0m::{
     net::{Protocol, Receive},
 };
 
-use crate::{Capture, Encoder, EncoderConfig, Error, Frame, Input, MouseButton, PressState};
+use crate::{
+    Capture, Encoder, EncoderConfig, Error, Frame, Input, MouseButton, PressState, StopHandle,
+};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -61,12 +63,25 @@ impl SessionConfig {
     }
 }
 
+/// Something that happened to a viewer.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SessionEvent {
+    /// The viewer finished connecting.
+    ViewerConnected,
+    /// The viewer disconnected, or [`StopHandle::stop`] ended a session that had a viewer.
+    ViewerDisconnected,
+}
+
 /// One viewer watching and controlling the screen over WebRTC.
 pub struct RemoteSession {
     rtc: Rtc,
     socket: UdpSocket,
     output_index: usize,
     encoder: EncoderConfig,
+    stop: StopHandle,
+    events: mpsc::Sender<SessionEvent>,
+    events_rx: Option<Receiver<SessionEvent>>,
 }
 
 struct Encoded {
@@ -97,24 +112,51 @@ impl RemoteSession {
             .accept_offer(offer)
             .map_err(webrtc_error)?
             .to_sdp_string();
+        let (events, events_rx) = mpsc::channel();
         let session = Self {
             rtc,
             socket,
             output_index: config.output_index,
             encoder: config.encoder,
+            stop: StopHandle::new(),
+            events,
+            events_rx: Some(events_rx),
         };
         Ok((session, answer))
     }
 
-    /// Streams the screen and applies the viewer's input until the viewer disconnects.
+    /// Returns a handle that stops [`RemoteSession::run`] from another thread.
+    ///
+    /// Stopping also unblocks capture while the screen is idle.
+    pub fn handle(&self) -> StopHandle {
+        self.stop.clone()
+    }
+
+    /// Returns the viewer events for this session.
+    ///
+    /// Call this before [`RemoteSession::run`]. A second call returns [`None`].
+    pub fn take_events(&mut self) -> Option<Receiver<SessionEvent>> {
+        self.events_rx.take()
+    }
+
+    fn emit(&self, event: SessionEvent) {
+        let _ = self.events.send(event);
+    }
+
+    /// Streams the screen and applies the viewer's input until the viewer disconnects or [`RemoteSession::handle`] is stopped.
     ///
     /// # Errors
     ///
     /// Returns [`Error::WebRtc`] if the viewer does not connect within 30 seconds,
-    /// or the capture or encoder error if either fails.
+    /// or the capture or encoder error if either fails. Stopping the handle returns [`Ok`].
     pub fn run(mut self) -> Result<(), Error> {
         let keyframe = Arc::new(AtomicBool::new(true));
-        let video = start_video(self.output_index, keyframe.clone(), self.encoder);
+        let video = start_video(
+            self.output_index,
+            keyframe.clone(),
+            self.encoder,
+            self.stop.clone(),
+        );
         let mut input = Input::new(self.output_index)?;
 
         let start = Instant::now();
@@ -123,6 +165,12 @@ impl RemoteSession {
         let mut buffer = vec![0; 2000];
 
         loop {
+            if self.stop.is_stopped() {
+                if let Some(event) = ended_session_event(connected) {
+                    self.emit(event);
+                }
+                return Ok(());
+            }
             if connect_timed_out(connected, start.elapsed()) {
                 return Err(webrtc_error("viewer did not connect in time"));
             }
@@ -137,10 +185,17 @@ impl RemoteSession {
                 Output::Event(event) => {
                     match event {
                         Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
+                            self.stop.stop();
+                            if let Some(event) = ended_session_event(connected) {
+                                self.emit(event);
+                            }
                             return Ok(());
                         }
                         Event::Connected => {
-                            connected = true;
+                            if !connected {
+                                connected = true;
+                                self.emit(SessionEvent::ViewerConnected);
+                            }
                             keyframe.store(true, Ordering::Relaxed);
                         }
                         Event::MediaAdded(media) if media.kind == MediaKind::Video => {
@@ -206,11 +261,12 @@ fn start_video(
     output_index: usize,
     keyframe: Arc<AtomicBool>,
     encoder: EncoderConfig,
+    stop: StopHandle,
 ) -> Receiver<Result<Encoded, Error>> {
     let (frame_tx, frame_rx) = mpsc::sync_channel(1);
     let (encoded_tx, encoded_rx) = mpsc::sync_channel(1);
 
-    thread::spawn(move || capture_loop(output_index, frame_tx));
+    thread::spawn(move || capture_loop(output_index, frame_tx, stop));
     thread::spawn(move || {
         if let Err(e) = encode_loop(&frame_rx, &encoded_tx, &keyframe, encoder) {
             let _ = encoded_tx.send(Err(e));
@@ -220,7 +276,7 @@ fn start_video(
     encoded_rx
 }
 
-fn capture_loop(output_index: usize, frames: SyncSender<Result<Frame, Error>>) {
+fn capture_loop(output_index: usize, frames: SyncSender<Result<Frame, Error>>, stop: StopHandle) {
     let mut capture = match Capture::new(output_index) {
         Ok(capture) => capture,
         Err(e) => {
@@ -228,13 +284,21 @@ fn capture_loop(output_index: usize, frames: SyncSender<Result<Frame, Error>>) {
             return;
         }
     };
+    capture.set_stop_handle(&stop);
     loop {
-        let frame = capture.next_frame();
+        let frame = match capture.next_frame() {
+            Err(Error::Stopped) => return,
+            other => other,
+        };
         let failed = frame.is_err();
         if frames.send(frame).is_err() || failed {
             return;
         }
     }
+}
+
+fn ended_session_event(was_connected: bool) -> Option<SessionEvent> {
+    was_connected.then_some(SessionEvent::ViewerDisconnected)
 }
 
 fn encode_loop(
@@ -484,6 +548,27 @@ mod tests {
         assert!(encoder_is_stale(None, (1920, 1080)));
         assert!(!encoder_is_stale(Some((1920, 1080)), (1920, 1080)));
         assert!(encoder_is_stale(Some((1920, 1080)), (1280, 720)));
+    }
+
+    #[test]
+    fn a_disconnect_is_reported_only_after_the_viewer_connected() {
+        assert_eq!(ended_session_event(false), None);
+        assert_eq!(
+            ended_session_event(true),
+            Some(SessionEvent::ViewerDisconnected)
+        );
+    }
+
+    #[test]
+    fn the_stop_handle_is_shared_and_events_are_taken_once() {
+        let (mut session, _answer) =
+            RemoteSession::accept(&browser_offer(), &config(None)).unwrap();
+        let handle = session.handle();
+        assert!(!session.stop.is_stopped());
+        handle.stop();
+        assert!(session.stop.is_stopped());
+        assert!(session.take_events().is_some());
+        assert!(session.take_events().is_none());
     }
 
     #[test]

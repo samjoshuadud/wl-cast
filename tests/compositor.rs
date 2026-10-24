@@ -1,6 +1,6 @@
 use std::{env, process::Command, thread, time::Duration};
 
-use wl_cast::{Capture, Input, MouseButton, PressState};
+use wl_cast::{Capture, Error, Input, MouseButton, PressState, StopHandle};
 
 const KEY_A: u32 = 30;
 
@@ -65,6 +65,36 @@ fn keeps_capturing_after_the_output_is_resized() {
             latest.width as usize * latest.height as usize * 4,
             "{backend}"
         );
+    }
+}
+
+#[test]
+#[ignore = "needs a Wayland compositor"]
+fn stops_capture_while_the_screen_is_idle() {
+    for backend in ["ext", "wlr"] {
+        // SAFETY: this test is one thread and does not spawn another before reading the variable.
+        unsafe { env::set_var("WL_CAST_CAPTURE", backend) };
+        let mut capture = Capture::new(0).unwrap();
+        let handle = StopHandle::new();
+        capture.set_stop_handle(&handle);
+        capture.next_frame().unwrap();
+
+        let stop = handle.clone();
+        let worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            stop.stop();
+        });
+
+        let started = std::time::Instant::now();
+        loop {
+            match capture.next_frame() {
+                Err(Error::Stopped) => break,
+                Ok(_) if started.elapsed() < Duration::from_secs(2) => {}
+                other => panic!("{backend}: {other:?}"),
+            }
+        }
+        worker.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(3), "{backend}");
     }
 }
 

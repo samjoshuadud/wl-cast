@@ -34,11 +34,11 @@ mod stream;
 mod webrtc;
 
 pub use auth::AccessToken;
-pub use capture::Capture;
+pub use capture::{Capture, StopHandle};
 pub use encode::{Encoder, EncoderConfig, H264Profile};
 pub use error::Error;
 pub use frame::Frame;
 pub use input::{Input, MouseButton, PressState};
 pub use stream::RtpSender;
 #[cfg(feature = "webrtc")]
-pub use webrtc::{RemoteSession, SessionConfig};
+pub use webrtc::{RemoteSession, SessionConfig, SessionEvent};

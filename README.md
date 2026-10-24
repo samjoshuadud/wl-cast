@@ -73,7 +73,7 @@ With the `webrtc` feature, `RemoteSession` streams the screen to a browser and a
 cargo run --release --features ffmpeg,webrtc --example webrtc
 ```
 
-It prints a link with a secret token. Open it in a browser on the same network.
+It prints a link with a secret token. Open it in a browser on the same network. `RemoteSession::handle` stops the session from another thread, and `take_events` reports when the viewer connects or leaves.
 
 ### From the internet
 

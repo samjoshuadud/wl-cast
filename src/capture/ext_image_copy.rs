@@ -1,4 +1,9 @@
-use std::{fs::File, os::unix::fs::FileExt, time::Instant};
+use std::{
+    fs::File,
+    os::unix::fs::FileExt,
+    sync::{Arc, atomic::AtomicBool},
+    time::Instant,
+};
 
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
@@ -10,7 +15,7 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
-use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx};
+use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx, wait_for};
 use crate::{Error, Frame};
 
 pub(super) struct ExtCapture {
@@ -23,6 +28,7 @@ pub(super) struct ExtCapture {
     width: u32,
     height: u32,
     transform: Transform,
+    stop: Option<Arc<AtomicBool>>,
 }
 
 impl ExtCapture {
@@ -79,7 +85,12 @@ impl ExtCapture {
             width,
             height,
             transform,
+            stop: None,
         })
+    }
+
+    pub(super) fn set_stop(&mut self, stop: Arc<AtomicBool>) {
+        self.stop = Some(stop);
     }
 
     pub(super) fn size(&self) -> (u32, u32) {
@@ -128,9 +139,10 @@ impl ExtCapture {
             frame.damage_buffer(0, 0, self.width as i32, self.height as i32);
             frame.capture();
 
-            while !self.state.frame_ready && !self.state.frame_failed && !self.state.ext_stopped {
-                self.queue.blocking_dispatch(&mut self.state)?;
-            }
+            let stop = self.stop.clone();
+            wait_for(&mut self.queue, &mut self.state, stop.as_deref(), |state| {
+                state.frame_ready || state.frame_failed || state.ext_stopped
+            })?;
             frame.destroy();
 
             if self.state.frame_ready {
