@@ -7,6 +7,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-24
+
+### Added
+
+- `Debug` on every public type. `AccessToken` prints `AccessToken(..)` and never the secret. `Frame` prints the data length instead of the pixels.
+- `Hash` on `MouseButton`, `Clone` on `Frame`, and `Clone`, `PartialEq` and `Eq` on `SessionConfig`.
+
+### Changed
+
+- Every public function that returns `Result` documents its errors.
+
 ## [0.1.1] - 2026-10-24
 
 ### Added
