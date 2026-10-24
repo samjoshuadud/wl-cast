@@ -2,14 +2,35 @@
 <html>
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>wl-cast</title>
     <style>
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-      video { width: 100%; height: 100%; object-fit: contain; cursor: none; }
+      video { width: 100%; height: 100%; object-fit: contain; cursor: none; touch-action: none; }
+      body.keyboard video { height: calc(100% - 168px); }
+      button, input { font: 16px sans-serif; color: #fff; }
+      #keys-toggle {
+        position: fixed; top: 12px; right: 12px; z-index: 2;
+        background: #222; border: 0; border-radius: 8px; padding: 10px 14px;
+      }
+      #keys {
+        display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+        height: 168px; box-sizing: border-box; background: #111; padding: 8px;
+      }
+      body.keyboard #keys { display: block; }
+      #typed { width: 100%; box-sizing: border-box; background: #222; border: 0; border-radius: 6px; padding: 10px; }
+      .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .row button { background: #333; border: 0; border-radius: 6px; padding: 12px; }
+      .row button.down { background: #06c; }
     </style>
   </head>
   <body>
     <video id="screen" autoplay muted playsinline></video>
+    <button id="keys-toggle" type="button">Keyboard</button>
+    <div id="keys">
+      <input id="typed" autocomplete="off" autocapitalize="off" enterkeyhint="done" placeholder="Type">
+      <div class="row" id="key-row"></div>
+    </div>
     <script type="module">
       const KEYS = {
         Escape: 1, Digit1: 2, Digit2: 3, Digit3: 4, Digit4: 5, Digit5: 6, Digit6: 7,
@@ -32,6 +53,7 @@
       };
 
       const video = document.getElementById("screen");
+      const typedInput = document.getElementById("typed");
       const pc = new RTCPeerConnection();
       const input = pc.createDataChannel("input");
       pc.addTransceiver("video", { direction: "recvonly" });
@@ -49,13 +71,22 @@
         return [(event.clientX - left) / width, (event.clientY - top) / height];
       };
 
-      video.addEventListener("mousemove", (event) => {
+      const move = (event) => {
         if (!video.videoWidth) return;
         const [x, y] = position(event);
         send(`m ${x} ${y}`);
+      };
+      video.addEventListener("pointermove", move);
+      video.addEventListener("pointerdown", (event) => {
+        move(event);
+        send(`b ${event.button} 1`);
+        event.preventDefault();
       });
-      video.addEventListener("mousedown", (event) => { send(`b ${event.button} 1`); event.preventDefault(); });
-      video.addEventListener("mouseup", (event) => { send(`b ${event.button} 0`); event.preventDefault(); });
+      video.addEventListener("pointerup", (event) => {
+        send(`b ${event.button} 0`);
+        event.preventDefault();
+      });
+      video.addEventListener("pointercancel", (event) => send(`b ${event.button} 0`));
       video.addEventListener("contextmenu", (event) => event.preventDefault());
       video.addEventListener("wheel", (event) => {
         const factor = event.deltaMode === 1 ? 5 : 0.15;
@@ -64,6 +95,7 @@
       }, { passive: false });
 
       const key = (pressed) => (event) => {
+        if (event.target === typedInput) return;
         const code = KEYS[event.code];
         if (code === undefined || event.repeat) return;
         send(`k ${code} ${pressed ? 1 : 0}`);
@@ -71,6 +103,96 @@
       };
       window.addEventListener("keydown", key(true));
       window.addEventListener("keyup", key(false));
+
+      const tap = (code) => { send(`k ${code} 1`); send(`k ${code} 0`); };
+      const withShift = (code) => {
+        send(`k ${KEYS.ShiftLeft} 1`);
+        tap(code);
+        send(`k ${KEYS.ShiftLeft} 0`);
+      };
+      const PLAIN = {
+        " ": "Space", "-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight",
+        ";": "Semicolon", "'": "Quote", "`": "Backquote", "\\": "Backslash",
+        ",": "Comma", ".": "Period", "/": "Slash",
+      };
+      const SHIFTED = {
+        "!": "Digit1", "@": "Digit2", "#": "Digit3", "$": "Digit4", "%": "Digit5",
+        "^": "Digit6", "&": "Digit7", "*": "Digit8", "(": "Digit9", ")": "Digit0",
+        "_": "Minus", "+": "Equal", "{": "BracketLeft", "}": "BracketRight",
+        ":": "Semicolon", "\"": "Quote", "~": "Backquote", "|": "Backslash",
+        "<": "Comma", ">": "Period", "?": "Slash",
+      };
+      const typeChar = (char) => {
+        if (char >= "a" && char <= "z") tap(KEYS[`Key${char.toUpperCase()}`]);
+        else if (char >= "A" && char <= "Z") withShift(KEYS[`Key${char}`]);
+        else if (char >= "0" && char <= "9") tap(KEYS[char === "0" ? "Digit0" : `Digit${char}`]);
+        else if (PLAIN[char]) tap(KEYS[PLAIN[char]]);
+        else if (SHIFTED[char]) withShift(KEYS[SHIFTED[char]]);
+      };
+
+      let typed = "";
+      typedInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          tap(KEYS.Enter);
+          event.preventDefault();
+        }
+      });
+      typedInput.addEventListener("input", () => {
+        const next = typedInput.value;
+        let same = 0;
+        while (same < typed.length && same < next.length && typed[same] === next[same]) same += 1;
+        for (let index = typed.length; index > same; index -= 1) tap(KEYS.Backspace);
+        for (const char of next.slice(same)) typeChar(char);
+        typed = next;
+      });
+
+      const held = new Set();
+      const releaseHeld = () => {
+        for (const code of held) send(`k ${code} 0`);
+        held.clear();
+      };
+      const row = document.getElementById("key-row");
+      const addKey = (label, code, sticky) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", () => {
+          if (!sticky) {
+            tap(code);
+            return;
+          }
+          if (held.has(code)) {
+            held.delete(code);
+            send(`k ${code} 0`);
+            button.classList.remove("down");
+          } else {
+            held.add(code);
+            send(`k ${code} 1`);
+            button.classList.add("down");
+          }
+        });
+        row.append(button);
+      };
+      for (const [label, code] of [
+        ["Esc", KEYS.Escape], ["Tab", KEYS.Tab], ["Enter", KEYS.Enter], ["Backspace", KEYS.Backspace],
+        ["Space", KEYS.Space], ["Left", KEYS.ArrowLeft], ["Down", KEYS.ArrowDown],
+        ["Up", KEYS.ArrowUp], ["Right", KEYS.ArrowRight],
+      ]) addKey(label, code, false);
+      for (const [label, code] of [
+        ["Ctrl", KEYS.ControlLeft], ["Alt", KEYS.AltLeft], ["Shift", KEYS.ShiftLeft], ["Super", KEYS.MetaLeft],
+      ]) addKey(label, code, true);
+
+      const toggle = document.getElementById("keys-toggle");
+      toggle.addEventListener("click", () => {
+        const open = document.body.classList.toggle("keyboard");
+        toggle.textContent = open ? "Hide keyboard" : "Keyboard";
+        if (open) typedInput.focus();
+        else {
+          releaseHeld();
+          for (const button of row.children) button.classList.remove("down");
+          typedInput.blur();
+        }
+      });
 
       await pc.setLocalDescription(await pc.createOffer());
       const token = new URLSearchParams(location.search).get("t") ?? "";
