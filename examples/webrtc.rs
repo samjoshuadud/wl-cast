@@ -47,6 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>, Box<dyn Error>> {
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -73,7 +74,7 @@ fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>
     let offer = SdpOffer::from_sdp_string(std::str::from_utf8(&body)?)?;
 
     let mut rtc = Rtc::builder().build(Instant::now());
-    let socket = UdpSocket::bind((ip, 0))?;
+    let socket = UdpSocket::bind((ip, 8080))?;
     rtc.add_local_candidate(Candidate::host(socket.local_addr()?, "udp")?);
     let answer = rtc.sdp_api().accept_offer(offer)?;
 
