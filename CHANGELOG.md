@@ -11,6 +11,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - CI runs capture and input against a headless Sway.
 
+### Fixed
+
+- Capture keeps going when a monitor is resized or rotated, and returns frames of the new size. A WebRTC session opens a new encoder for that size.
+
 ## [0.1.2] - 2026-10-24
 
 ### Added

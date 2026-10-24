@@ -69,7 +69,10 @@ impl Capture {
         Ok(Self { backend })
     }
 
-    /// Returns the width and height in pixels of every frame.
+    /// Returns the width and height in pixels of the latest frame.
+    ///
+    /// Before the first frame, this is the monitor size at the moment capturing started.
+    /// It changes after the monitor is resized or rotated.
     pub fn size(&self) -> (u32, u32) {
         match &self.backend {
             Backend::Ext(capture) => capture.size(),
@@ -81,7 +84,7 @@ impl Capture {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture, for example after the monitor changes.
+    /// Returns [`Error::CaptureFailed`] if the compositor cannot capture.
     pub fn next_frame(&mut self) -> Result<Frame, Error> {
         match &mut self.backend {
             Backend::Ext(capture) => capture.next_frame(),
@@ -217,6 +220,9 @@ struct State {
     ext_height: u32,
     ext_formats: Vec<wl_shm::Format>,
     ext_constraints_done: bool,
+    ext_constraint_epoch: u32,
+    ext_constraints_mismatch: bool,
+    ext_stopped: bool,
     ext_transform: Option<Transform>,
 
     wlr_manager: Option<ZwlrScreencopyManagerV1>,
@@ -240,6 +246,29 @@ impl State {
             .get(index)
             .copied()
             .unwrap_or(Transform::Normal)
+    }
+
+    fn begin_ext_constraints(&mut self) {
+        if self.ext_constraints_done {
+            self.ext_constraints_done = false;
+            self.ext_formats.clear();
+        }
+    }
+
+    fn ext_buffer_size(&mut self, width: u32, height: u32) {
+        self.begin_ext_constraints();
+        self.ext_width = width;
+        self.ext_height = height;
+    }
+
+    fn ext_shm_format(&mut self, format: wl_shm::Format) {
+        self.begin_ext_constraints();
+        self.ext_formats.push(format);
+    }
+
+    fn ext_constraints_finished(&mut self) {
+        self.ext_constraints_done = true;
+        self.ext_constraint_epoch = self.ext_constraint_epoch.wrapping_add(1);
     }
 }
 
@@ -352,6 +381,29 @@ mod tests {
     #[test]
     fn an_unknown_preference_is_ignored() {
         assert!(matches!(choose(Some("other"), false, true), Ok(Kind::Wlr)));
+    }
+
+    #[test]
+    fn a_new_constraint_batch_replaces_the_previous_one() {
+        let mut state = State::default();
+        state.ext_buffer_size(10, 20);
+        state.ext_shm_format(wl_shm::Format::Xrgb8888);
+        state.ext_shm_format(wl_shm::Format::Argb8888);
+        state.ext_constraints_finished();
+        assert_eq!(state.ext_constraint_epoch, 1);
+        assert_eq!(
+            state.ext_formats,
+            vec![wl_shm::Format::Xrgb8888, wl_shm::Format::Argb8888]
+        );
+
+        state.ext_shm_format(wl_shm::Format::Xbgr8888);
+        assert!(!state.ext_constraints_done);
+        assert_eq!(state.ext_formats, vec![wl_shm::Format::Xbgr8888]);
+        state.ext_buffer_size(30, 40);
+        assert_eq!(state.ext_formats, vec![wl_shm::Format::Xbgr8888]);
+        state.ext_constraints_finished();
+        assert_eq!((state.ext_width, state.ext_height), (30, 40));
+        assert_eq!(state.ext_constraint_epoch, 2);
     }
 
     #[test]

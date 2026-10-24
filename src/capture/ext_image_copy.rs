@@ -5,7 +5,7 @@ use wayland_client::{
     protocol::{wl_buffer::WlBuffer, wl_output::Transform, wl_shm},
 };
 use wayland_protocols::ext::image_copy_capture::v1::client::{
-    ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
+    ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1, FailureReason},
     ext_image_copy_capture_manager_v1,
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
@@ -22,7 +22,7 @@ pub(super) struct ExtCapture {
     format: wl_shm::Format,
     width: u32,
     height: u32,
-    size: (u32, u32),
+    transform: Transform,
 }
 
 impl ExtCapture {
@@ -67,7 +67,7 @@ impl ExtCapture {
         let shm = state.shm.as_ref().ok_or(Error::Unsupported("wl_shm"))?;
         let (file, buffer) = shm_buffer(shm, &qh, width, height, width * 4, format)?;
 
-        let size = oriented_size(width, height, state.output_transform(output_index));
+        let transform = state.output_transform(output_index);
 
         Ok(Self {
             queue,
@@ -78,44 +78,83 @@ impl ExtCapture {
             format,
             width,
             height,
-            size,
+            transform,
         })
     }
 
     pub(super) fn size(&self) -> (u32, u32) {
-        self.size
+        oriented_size(self.width, self.height, self.transform)
+    }
+
+    fn ensure_buffer(&mut self) -> Result<(), Error> {
+        if !self.state.ext_constraints_done {
+            return Ok(());
+        }
+        let format = FORMATS
+            .into_iter()
+            .find(|format| self.state.ext_formats.contains(format))
+            .ok_or(Error::Unsupported(FORMATS_ERROR))?;
+        let width = self.state.ext_width;
+        let height = self.state.ext_height;
+        if width == self.width && height == self.height && format == self.format {
+            return Ok(());
+        }
+        let shm = self.state.shm.clone().ok_or(Error::Unsupported("wl_shm"))?;
+        let qh = self.queue.handle();
+        let (file, buffer) = shm_buffer(&shm, &qh, width, height, width * 4, format)?;
+        self.file = file;
+        self.buffer = buffer;
+        self.format = format;
+        self.width = width;
+        self.height = height;
+        Ok(())
     }
 
     pub(super) fn next_frame(&mut self) -> Result<Frame, Error> {
-        self.state.frame_ready = false;
-        self.state.frame_failed = false;
-        self.state.ext_transform = None;
-
-        let frame = self.session.create_frame(&self.queue.handle(), ());
-        frame.attach_buffer(&self.buffer);
-        frame.damage_buffer(0, 0, self.width as i32, self.height as i32);
-        frame.capture();
-
-        while !self.state.frame_ready && !self.state.frame_failed {
-            self.queue.blocking_dispatch(&mut self.state)?;
+        if self.state.ext_stopped {
+            return Err(Error::CaptureFailed);
         }
-        frame.destroy();
+        let mut retried = false;
+        loop {
+            self.ensure_buffer()?;
+            self.state.frame_ready = false;
+            self.state.frame_failed = false;
+            self.state.ext_constraints_mismatch = false;
+            self.state.ext_transform = None;
+            let epoch = self.state.ext_constraint_epoch;
 
-        if self.state.frame_failed {
+            let frame = self.session.create_frame(&self.queue.handle(), ());
+            frame.attach_buffer(&self.buffer);
+            frame.damage_buffer(0, 0, self.width as i32, self.height as i32);
+            frame.capture();
+
+            while !self.state.frame_ready && !self.state.frame_failed && !self.state.ext_stopped {
+                self.queue.blocking_dispatch(&mut self.state)?;
+            }
+            frame.destroy();
+
+            if self.state.frame_ready {
+                break;
+            }
+            if self.state.ext_constraints_mismatch && !retried {
+                if self.state.ext_constraint_epoch == epoch {
+                    self.queue.blocking_dispatch(&mut self.state)?;
+                }
+                retried = true;
+                continue;
+            }
             return Err(Error::CaptureFailed);
         }
 
-        let transform = self.state.ext_transform.unwrap_or(Transform::Normal);
-        if oriented_size(self.width, self.height, transform) != self.size {
-            return Err(Error::CaptureFailed);
-        }
-
+        let transform = self.state.ext_transform.unwrap_or(self.transform);
+        self.transform = transform;
+        let (width, height) = self.size();
         let mut data = vec![0; (self.width * self.height * 4) as usize];
         self.file.read_exact_at(&mut data, 0)?;
 
         Ok(Frame {
-            width: self.size.0,
-            height: self.size.1,
+            width,
+            height,
             data: orient(
                 to_bgrx(data, self.format),
                 self.width,
@@ -138,13 +177,13 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for State {
     ) {
         match event {
             ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
-                state.ext_width = width;
-                state.ext_height = height;
+                state.ext_buffer_size(width, height);
             }
             ext_image_copy_capture_session_v1::Event::ShmFormat {
                 format: WEnum::Value(format),
-            } => state.ext_formats.push(format),
-            ext_image_copy_capture_session_v1::Event::Done => state.ext_constraints_done = true,
+            } => state.ext_shm_format(format),
+            ext_image_copy_capture_session_v1::Event::Done => state.ext_constraints_finished(),
+            ext_image_copy_capture_session_v1::Event::Stopped => state.ext_stopped = true,
             _ => {}
         }
     }
@@ -164,7 +203,11 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for State {
                 transform: WEnum::Value(transform),
             } => state.ext_transform = Some(transform),
             ext_image_copy_capture_frame_v1::Event::Ready => state.frame_ready = true,
-            ext_image_copy_capture_frame_v1::Event::Failed { .. } => state.frame_failed = true,
+            ext_image_copy_capture_frame_v1::Event::Failed { reason } => {
+                state.frame_failed = true;
+                state.ext_constraints_mismatch =
+                    matches!(reason, WEnum::Value(FailureReason::BufferConstraints));
+            }
             _ => {}
         }
     }

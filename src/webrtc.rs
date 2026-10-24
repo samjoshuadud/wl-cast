@@ -212,6 +212,7 @@ fn encode_loop(
     keyframe: &AtomicBool,
 ) -> Result<(), Error> {
     let mut encoder: Option<Encoder> = None;
+    let mut encoded_size = None;
     let mut last_frame: Option<Frame> = None;
 
     loop {
@@ -225,8 +226,11 @@ fn encode_loop(
             continue;
         };
 
-        if encoder.is_none() {
+        let size = (frame.width, frame.height);
+        if encoder_is_stale(encoded_size, size) {
             encoder = Some(Encoder::new(frame.width, frame.height)?);
+            encoded_size = Some(size);
+            keyframe.store(true, Ordering::Relaxed);
         }
         let Some(encoder) = encoder.as_mut() else {
             continue;
@@ -337,6 +341,10 @@ fn apply(input: &mut Input, event: ViewerEvent) -> Result<(), Error> {
     }
 }
 
+fn encoder_is_stale(current: Option<(u32, u32)>, size: (u32, u32)) -> bool {
+    current != Some(size)
+}
+
 fn connect_timed_out(connected: bool, waited: Duration) -> bool {
     !connected && waited > CONNECT_TIMEOUT
 }
@@ -420,6 +428,13 @@ mod tests {
     fn answer_has_no_public_address_by_default() {
         let (_session, answer) = RemoteSession::accept(&browser_offer(), &config(None)).unwrap();
         assert!(!answer.contains("203.0.113.7"));
+    }
+
+    #[test]
+    fn a_resized_frame_needs_a_new_encoder() {
+        assert!(encoder_is_stale(None, (1920, 1080)));
+        assert!(!encoder_is_stale(Some((1920, 1080)), (1920, 1080)));
+        assert!(encoder_is_stale(Some((1920, 1080)), (1280, 720)));
     }
 
     #[test]

@@ -109,6 +109,7 @@ while [ ! -S "$rt/wayland-1" ]; do
     sleep 0.1
 done
 export WAYLAND_DISPLAY=wayland-1
+export PATH="$sway/bin:$PATH"
 
 if ! cargo test --test compositor -- --ignored --test-threads=1; then
     echo "--- sway"

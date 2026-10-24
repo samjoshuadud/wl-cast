@@ -89,8 +89,17 @@ impl WlrCapture {
             &self.output,
         )?;
         if info != self.info {
-            frame.destroy();
-            return Err(Error::CaptureFailed);
+            let WEnum::Value(format) = info.format else {
+                frame.destroy();
+                return Err(Error::Unsupported(FORMATS_ERROR));
+            };
+            let shm = self.state.shm.clone().ok_or(Error::Unsupported("wl_shm"))?;
+            let qh = self.queue.handle();
+            let (file, buffer) =
+                shm_buffer(&shm, &qh, info.width, info.height, info.stride, format)?;
+            self.file = file;
+            self.buffer = buffer;
+            self.info = info;
         }
 
         if self.state.wlr_version >= 2 {

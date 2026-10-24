@@ -97,7 +97,7 @@ The viewer sends one text line per event on a data channel named `input`.
 
 - Linux and Wayland only. GNOME and KDE are not supported yet.
 - One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
-- Changing or unplugging a monitor during a session is not handled and is untested.
+- Unplugging a monitor during a session is not handled. A resize or rotation is followed.
 - No audio, clipboard or multi-monitor switching.
 - GPU encoding with NVENC (Nvidia) is untested. VA-API (Intel, AMD) is tested on AMD.
 - Software encoding is slow on busy full-screen video (about 10 frames per second at 1080p).
