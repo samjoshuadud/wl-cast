@@ -73,7 +73,8 @@
       window.addEventListener("keyup", key(false));
 
       await pc.setLocalDescription(await pc.createOffer());
-      const response = await fetch("/offer", { method: "POST", body: pc.localDescription.sdp });
+      const token = new URLSearchParams(location.search).get("t") ?? "";
+      const response = await fetch(`/offer?t=${encodeURIComponent(token)}`, { method: "POST", body: pc.localDescription.sdp });
       await pc.setRemoteDescription({ type: "answer", sdp: await response.text() });
     </script>
   </body>

@@ -47,7 +47,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_http(stream: TcpStream, ip: IpAddr) -> Result<Option<(Rtc, UdpSocket)>, Box<dyn Error>> {
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;

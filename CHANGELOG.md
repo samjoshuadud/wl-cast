@@ -16,6 +16,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `Frame::captured_at`: capture time, used for playback timing.
 - `Input`: move, click and scroll the mouse with wlr-virtual-pointer.
 - `Input::key`: press and release keys with virtual-keyboard, using the compositor's own keymap.
+- `AccessToken`: random secret a viewer must present to connect.
 - `Encoder::request_keyframe`: make the next frame a full picture for a new viewer.
 - `ffmpeg` feature: GPU encoding with VA-API (Intel, AMD) or NVENC (Nvidia), falling back to OpenH264.
 
