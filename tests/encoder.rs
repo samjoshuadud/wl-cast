@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use wl_cast::{Encoder, Frame};
+use wl_cast::{Encoder, Error, Frame};
 
 const IDR: u8 = 5;
 
@@ -11,6 +11,15 @@ fn frame(patch: u8) -> Frame {
         width: 64,
         height: 64,
         data,
+        captured_at: Instant::now(),
+    }
+}
+
+fn raw_frame(width: u32, height: u32, len: usize) -> Frame {
+    Frame {
+        width,
+        height,
+        data: vec![100; len],
         captured_at: Instant::now(),
     }
 }
@@ -35,4 +44,25 @@ fn requested_keyframe_is_an_idr_frame() {
     encoder.request_keyframe();
     let third = encoder.encode(&frame(120)).unwrap();
     assert!(nal_types(&third).contains(&IDR));
+}
+
+#[test]
+fn rejects_a_frame_of_a_different_size() {
+    let mut encoder = Encoder::new(64, 64).unwrap();
+    let result = encoder.encode(&raw_frame(32, 32, 32 * 32 * 4));
+    assert!(matches!(result, Err(Error::InvalidFrame)));
+}
+
+#[test]
+fn rejects_a_frame_with_missing_data() {
+    let mut encoder = Encoder::new(64, 64).unwrap();
+    let result = encoder.encode(&raw_frame(64, 64, 100));
+    assert!(matches!(result, Err(Error::InvalidFrame)));
+}
+
+#[test]
+fn accepts_a_frame_of_the_right_size_after_a_rejected_one() {
+    let mut encoder = Encoder::new(64, 64).unwrap();
+    assert!(encoder.encode(&raw_frame(64, 64, 100)).is_err());
+    assert!(encoder.encode(&frame(100)).is_ok());
 }

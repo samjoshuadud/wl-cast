@@ -10,6 +10,8 @@ use crate::{Error, Frame};
 /// Otherwise, or if no GPU encoder works, it falls back to OpenH264 in software.
 pub struct Encoder {
     backend: Backend,
+    width: u32,
+    height: u32,
 }
 
 enum Backend {
@@ -24,12 +26,15 @@ impl Encoder {
         if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(width, height) {
             return Ok(Self {
                 backend: Backend::Hardware(encoder),
+                width,
+                height,
             });
         }
 
-        let _ = (width, height);
         Ok(Self {
             backend: Backend::Software(Box::new(openh264::SoftwareEncoder::new()?)),
+            width,
+            height,
         })
     }
 
@@ -53,6 +58,14 @@ impl Encoder {
 
     /// Returns the frame as H.264 bytes, ready to append to a `.h264` file or stream.
     pub fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
+        let expected = (self.width as usize)
+            .saturating_mul(self.height as usize)
+            .saturating_mul(4);
+        if frame.width != self.width || frame.height != self.height || frame.data.len() != expected
+        {
+            return Err(Error::InvalidFrame);
+        }
+
         match &mut self.backend {
             #[cfg(feature = "ffmpeg")]
             Backend::Hardware(encoder) => encoder.encode(frame),

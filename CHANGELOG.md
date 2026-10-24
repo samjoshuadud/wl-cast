@@ -26,3 +26,4 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - `Encoder::new` now takes the frame width and height. Use `Capture::size`.
+- `Encoder::encode` returns `Error::InvalidFrame` when the frame size or data length does not match the encoder.
