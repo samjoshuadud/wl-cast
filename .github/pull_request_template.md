@@ -1,5 +1,7 @@
 ## What changed
 
+Closes #
+
 ## How you tested it
 
 Compositor and version:
@@ -8,7 +10,10 @@ Distro:
 
 ## Checklist
 
-- [ ] `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` pass
+- [ ] This pull request makes one change
+- [ ] `cargo fmt`, `cargo clippy --all-targets --features ffmpeg,webrtc -- -D warnings` and `cargo test` pass
 - [ ] Tests added or updated for logic changes
-- [ ] `CHANGELOG.md` updated
-- [ ] README updated if behavior changed
+- [ ] A line added to `CHANGELOG.md` under `Unreleased`
+- [ ] README and docs updated if behavior changed
+
+See [CONTRIBUTING.md](https://github.com/samjoshuadud/wl-cast/blob/main/CONTRIBUTING.md) for the full guidelines.
