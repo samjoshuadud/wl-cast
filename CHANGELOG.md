@@ -26,6 +26,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - `Encoder::new` now takes the frame width and height. Use `Capture::size`.
+- The minimum supported Rust version is 1.89.
 - `RemoteSession::run` returns an error if the viewer does not connect within 30 seconds.
 - `Encoder` can be moved to another thread with the `ffmpeg` feature, as it can without it.
 - `Encoder::encode` returns `Error::InvalidFrame` when the frame size or data length does not match the encoder.
