@@ -7,10 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-25
+
 ### Added
 
 - `Capture::by_name` captures the monitor with that compositor name, such as `eDP-1`. `Capture::new` still uses an index.
 - `WfdSource` runs the Miracast RTSP setup. `MpegTsRtp` packs H.264 into MPEG-TS RTP. `scale_bgra` resizes a frame to the mode the sink accepted.
+
+### Fixed
+
 - The sink sends `PLAY`. Answering that starts the video. Sending `PLAY` to the sink is rejected.
 
 ## [0.2.2] - 2026-10-25
