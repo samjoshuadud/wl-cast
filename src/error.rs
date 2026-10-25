@@ -36,6 +36,9 @@ pub enum Error {
     /// A network address could not be resolved.
     #[error("could not resolve address")]
     InvalidAddress,
+    /// The Miracast setup was rejected or the sink sent something unexpected.
+    #[error("miracast setup failed: {0}")]
+    Wfd(String),
     /// A WebRTC session failed.
     #[cfg(feature = "webrtc")]
     #[error("WebRTC error: {0}")]

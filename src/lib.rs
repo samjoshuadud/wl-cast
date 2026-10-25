@@ -4,6 +4,7 @@
 //! - [`Encoder`] turns frames into H.264, on the GPU when possible.
 //! - [`Input`] moves the mouse and presses keys. [`PressState`] says whether a button or key goes down or up.
 //! - [`RtpSender`] streams H.264 over RTP.
+//! - [`WfdSource`] speaks the Miracast setup. [`MpegTsRtp`] sends that picture as MPEG-TS.
 //! - [`AccessToken`] is a random secret for viewer login.
 //! - `RemoteSession` streams to a browser over WebRTC and applies its input (feature `webrtc`).
 //!
@@ -32,6 +33,7 @@ mod input;
 mod stream;
 #[cfg(feature = "webrtc")]
 mod webrtc;
+mod wfd;
 
 pub use auth::AccessToken;
 pub use capture::{Capture, StopHandle};
@@ -42,3 +44,4 @@ pub use input::{Input, MouseButton, PressState};
 pub use stream::RtpSender;
 #[cfg(feature = "webrtc")]
 pub use webrtc::{RemoteSession, SessionConfig, SessionEvent};
+pub use wfd::{MpegTsRtp, VideoMode, WfdAction, WfdSource, scale_bgra};
