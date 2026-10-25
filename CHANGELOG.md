@@ -10,6 +10,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - The `portal` feature captures through xdg-desktop-portal and PipeWire on compositors without ext-image-copy-capture or wlr-screencopy, such as GNOME and KDE. `WL_CAST_CAPTURE=portal` forces it. Failures are reported as `Error::Portal`.
+- The same feature controls the mouse and keyboard through the remote desktop portal when the compositor has no virtual pointer or keyboard. `WL_CAST_INPUT=portal` forces it.
 
 ### Fixed
 

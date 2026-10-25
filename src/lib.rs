@@ -7,7 +7,7 @@
 //! - [`AccessToken`] is a random secret for viewer login.
 //! - `RemoteSession` streams to a browser over WebRTC and applies its input (feature `webrtc`).
 //!
-//! Cargo features: `ffmpeg` for GPU encoding with VA-API or NVENC, and `webrtc`.
+//! Cargo features: `ffmpeg` for GPU encoding with VA-API or NVENC, `webrtc`, and `portal` for GNOME and KDE.
 //!
 //! ```no_run
 //! # fn main() -> Result<(), wl_cast::Error> {

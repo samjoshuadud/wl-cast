@@ -23,46 +23,14 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
 };
 
+use super::{MouseButton, PressState};
 use crate::Error;
 
 const EXTENT: u32 = 10_000;
 const KEY_CAPSLOCK: u32 = 58;
 const LOCK: u32 = 1 << 1;
 
-/// Whether a button or key is going down or coming up.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PressState {
-    /// The button or key is going down.
-    Pressed,
-    /// The button or key is coming up.
-    Released,
-}
-
-/// A mouse button.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum MouseButton {
-    /// The left button.
-    Left,
-    /// The right button.
-    Right,
-    /// The middle button, usually the wheel.
-    Middle,
-}
-
-impl MouseButton {
-    fn linux_code(self) -> u32 {
-        match self {
-            MouseButton::Left => 0x110,
-            MouseButton::Right => 0x111,
-            MouseButton::Middle => 0x112,
-        }
-    }
-}
-
-/// Controls the mouse and keyboard through virtual input devices.
-///
-/// The mouse covers one monitor.
-pub struct Input {
+pub(super) struct WlrInput {
     conn: Connection,
     _queue: EventQueue<State>,
     pointer: ZwlrVirtualPointerV1,
@@ -72,16 +40,8 @@ pub struct Input {
     start: Instant,
 }
 
-impl Input {
-    /// Creates a virtual mouse and keyboard.
-    ///
-    /// The mouse covers the monitor at `output_index`. The keyboard uses the compositor's current keymap.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Unsupported`] if the compositor lacks the virtual pointer or keyboard protocols,
-    /// or [`Error::OutputNotFound`] if there is no monitor at `output_index`.
-    pub fn new(output_index: usize) -> Result<Self, Error> {
+impl WlrInput {
+    pub(super) fn new(output_index: usize) -> Result<Self, Error> {
         let conn = Connection::connect_to_env()?;
         let mut queue = conn.new_event_queue::<State>();
         let qh = queue.handle();
@@ -125,12 +85,7 @@ impl Input {
         })
     }
 
-    /// Moves the pointer to `x`, `y`, given as fractions of the screen from 0.0 to 1.0.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn move_to(&mut self, x: f64, y: f64) -> Result<(), Error> {
+    pub(super) fn move_to(&mut self, x: f64, y: f64) -> Result<(), Error> {
         let x = (x.clamp(0.0, 1.0) * EXTENT as f64) as u32;
         let y = (y.clamp(0.0, 1.0) * EXTENT as f64) as u32;
         self.pointer
@@ -139,12 +94,7 @@ impl Input {
         self.flush()
     }
 
-    /// Presses or releases a mouse button.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn button(&mut self, button: MouseButton, press: PressState) -> Result<(), Error> {
+    pub(super) fn button(&mut self, button: MouseButton, press: PressState) -> Result<(), Error> {
         let state = match press {
             PressState::Pressed => ButtonState::Pressed,
             PressState::Released => ButtonState::Released,
@@ -154,12 +104,7 @@ impl Input {
         self.flush()
     }
 
-    /// Scrolls by `dx`, `dy` in pixels. Positive `dy` scrolls down.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn scroll(&mut self, dx: f64, dy: f64) -> Result<(), Error> {
+    pub(super) fn scroll(&mut self, dx: f64, dy: f64) -> Result<(), Error> {
         let time = self.time();
         if dx != 0.0 {
             self.pointer.axis(time, Axis::HorizontalScroll, dx);
@@ -171,14 +116,7 @@ impl Input {
         self.flush()
     }
 
-    /// Presses or releases a key.
-    ///
-    /// `code` is a Linux key code, for example 30 for A. The list is in `linux/input-event-codes.h`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Dispatch`] if the connection to the compositor is lost.
-    pub fn key(&mut self, code: u32, press: PressState) -> Result<(), Error> {
+    pub(super) fn key(&mut self, code: u32, press: PressState) -> Result<(), Error> {
         let state = match press {
             PressState::Pressed => wl_keyboard::KeyState::Pressed,
             PressState::Released => wl_keyboard::KeyState::Released,
@@ -216,9 +154,9 @@ impl Input {
     }
 }
 
-impl fmt::Debug for Input {
+impl fmt::Debug for WlrInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Input")
+        f.debug_struct("WlrInput")
             .field("held_modifiers", &self.held_modifiers)
             .field("locked_modifiers", &self.locked_modifiers)
             .finish_non_exhaustive()

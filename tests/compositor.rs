@@ -127,6 +127,25 @@ fn captures_and_stops_through_the_portal() {
     panic!("capture did not stop");
 }
 
+#[cfg(feature = "portal")]
+#[test]
+#[ignore = "needs xdg-desktop-portal with a RemoteDesktop backend"]
+fn moves_and_types_through_the_portal() {
+    // SAFETY: this test is one thread and does not spawn another before reading the variable.
+    unsafe { env::set_var("WL_CAST_INPUT", "portal") };
+    let mut input = Input::new(0).unwrap();
+    input.move_to(0.5, 0.5).unwrap();
+    input
+        .button(MouseButton::Left, PressState::Pressed)
+        .unwrap();
+    input
+        .button(MouseButton::Left, PressState::Released)
+        .unwrap();
+    input.scroll(0.0, -1.0).unwrap();
+    input.key(KEY_A, PressState::Pressed).unwrap();
+    input.key(KEY_A, PressState::Released).unwrap();
+}
+
 fn headless_output() -> String {
     let text = swaymsg(&["-t", "get_outputs"]);
     let start = text
