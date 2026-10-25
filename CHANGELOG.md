@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The `portal` feature captures through xdg-desktop-portal and PipeWire on compositors without ext-image-copy-capture or wlr-screencopy, such as GNOME and KDE. `WL_CAST_CAPTURE=portal` forces it. Failures are reported as `Error::Portal`.
+
 ## [0.2.1] - 2026-10-25
 
 ### Added

@@ -16,6 +16,7 @@
           wayland-utils
           ffmpeg
           ffmpeg.dev
+          pipewire.dev
           pkg-config
           rustPlatform.bindgenHook
           libva-utils

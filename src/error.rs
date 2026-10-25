@@ -40,6 +40,10 @@ pub enum Error {
     #[cfg(feature = "webrtc")]
     #[error("WebRTC error: {0}")]
     WebRtc(String),
+    /// The desktop portal or its PipeWire stream failed, or the user cancelled sharing.
+    #[cfg(feature = "portal")]
+    #[error("desktop portal error: {0}")]
+    Portal(String),
 }
 
 impl From<wayland_client::ConnectError> for Error {

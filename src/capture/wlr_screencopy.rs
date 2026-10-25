@@ -18,7 +18,9 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
-use super::{FORMATS, FORMATS_ERROR, State, orient, oriented_size, shm_buffer, to_bgrx, wait_for};
+use super::{
+    FORMATS, FORMATS_ERROR, State, orient, oriented_size, pack_rows, shm_buffer, to_bgrx, wait_for,
+};
 use crate::{Error, Frame};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -194,18 +196,6 @@ fn check(info: BufferInfo) -> Result<(), Error> {
     Ok(())
 }
 
-fn pack_rows(raw: &[u8], width: u32, stride: u32, y_invert: bool) -> Vec<u8> {
-    let row = width as usize * 4;
-    let mut rows: Vec<&[u8]> = raw
-        .chunks_exact(stride as usize)
-        .filter_map(|chunk| chunk.get(..row))
-        .collect();
-    if y_invert {
-        rows.reverse();
-    }
-    rows.concat()
-}
-
 impl Dispatch<ZwlrScreencopyFrameV1, ()> for State {
     fn event(
         state: &mut Self,
@@ -251,25 +241,6 @@ mod tests {
             height,
             stride,
         }
-    }
-
-    #[test]
-    fn padding_at_the_end_of_each_row_is_removed() {
-        let raw = [
-            1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 9, 10, 11, 12, 13, 14, 15, 16, 0, 0, 0, 0,
-        ];
-        let packed = pack_rows(&raw, 2, 12, false);
-        assert_eq!(
-            packed,
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-        );
-    }
-
-    #[test]
-    fn rows_are_flipped_when_the_frame_is_upside_down() {
-        let raw = [1, 1, 1, 1, 2, 2, 2, 2];
-        assert_eq!(pack_rows(&raw, 1, 4, true), [2, 2, 2, 2, 1, 1, 1, 1]);
-        assert_eq!(pack_rows(&raw, 1, 4, false), raw);
     }
 
     #[test]

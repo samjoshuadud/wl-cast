@@ -1,4 +1,6 @@
 mod ext_image_copy;
+#[cfg(feature = "portal")]
+mod portal;
 mod wlr_screencopy;
 
 use std::{
@@ -88,24 +90,32 @@ pub struct Capture {
 enum Backend {
     Ext(ext_image_copy::ExtCapture),
     Wlr(wlr_screencopy::WlrCapture),
+    #[cfg(feature = "portal")]
+    Portal(portal::PortalCapture),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum Kind {
     Ext,
     Wlr,
+    #[cfg(feature = "portal")]
+    Portal,
 }
 
 impl Capture {
     /// Starts capturing the monitor at `output_index`, where 0 is the first monitor.
     ///
     /// Uses ext-image-copy-capture when the compositor offers it, otherwise the older wlr-screencopy.
-    /// Set the `WL_CAST_CAPTURE` environment variable to `ext` or `wlr` to force one.
+    /// With the `portal` feature, compositors that offer neither, such as GNOME and KDE, go through
+    /// xdg-desktop-portal. The desktop then asks which monitor to share, `output_index` is not used,
+    /// and this call waits for that choice.
+    /// Set the `WL_CAST_CAPTURE` environment variable to `ext`, `wlr` or `portal` to force one.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Connect`] if there is no compositor, [`Error::Unsupported`] if it offers
-    /// neither protocol, or [`Error::OutputNotFound`] if there is no monitor at `output_index`.
+    /// Returns [`Error::Connect`] if there is no compositor, [`Error::Unsupported`] if no capture
+    /// method is available, [`Error::OutputNotFound`] if there is no monitor at `output_index`,
+    /// or `Error::Portal` if the portal or PipeWire fails or the choice is cancelled.
     pub fn new(output_index: usize) -> Result<Self, Error> {
         let conn = Connection::connect_to_env()?;
         let mut queue = conn.new_event_queue::<State>();
@@ -120,6 +130,8 @@ impl Capture {
         let backend = match choose(preference.as_deref(), state.has_ext(), state.has_wlr())? {
             Kind::Ext => Backend::Ext(ext_image_copy::ExtCapture::new(queue, state, output_index)?),
             Kind::Wlr => Backend::Wlr(wlr_screencopy::WlrCapture::new(queue, state, output_index)?),
+            #[cfg(feature = "portal")]
+            Kind::Portal => Backend::Portal(portal::PortalCapture::new()?),
         };
         Ok(Self { backend })
     }
@@ -132,6 +144,8 @@ impl Capture {
         match &self.backend {
             Backend::Ext(capture) => capture.size(),
             Backend::Wlr(capture) => capture.size(),
+            #[cfg(feature = "portal")]
+            Backend::Portal(capture) => capture.size(),
         }
     }
 
@@ -143,6 +157,8 @@ impl Capture {
         match &mut self.backend {
             Backend::Ext(capture) => capture.set_stop(flag),
             Backend::Wlr(capture) => capture.set_stop(flag),
+            #[cfg(feature = "portal")]
+            Backend::Portal(capture) => capture.set_stop(flag),
         }
     }
 
@@ -156,6 +172,8 @@ impl Capture {
         match &mut self.backend {
             Backend::Ext(capture) => capture.next_frame(),
             Backend::Wlr(capture) => capture.next_frame(),
+            #[cfg(feature = "portal")]
+            Backend::Portal(capture) => capture.next_frame(),
         }
     }
 }
@@ -165,6 +183,8 @@ impl fmt::Debug for Capture {
         let backend = match self.backend {
             Backend::Ext(_) => "ext-image-copy-capture",
             Backend::Wlr(_) => "wlr-screencopy",
+            #[cfg(feature = "portal")]
+            Backend::Portal(_) => "xdg-desktop-portal",
         };
         f.debug_struct("Capture")
             .field("backend", &backend)
@@ -179,11 +199,25 @@ fn choose(preference: Option<&str>, ext: bool, wlr: bool) -> Result<Kind, Error>
         Some("ext") => Err(Error::Unsupported("ext-image-copy-capture")),
         Some("wlr") if wlr => Ok(Kind::Wlr),
         Some("wlr") => Err(Error::Unsupported("wlr-screencopy")),
+        Some("portal") => portal_kind().ok_or(Error::Unsupported(
+            "xdg-desktop-portal capture without the portal feature",
+        )),
         _ if ext => Ok(Kind::Ext),
         _ if wlr => Ok(Kind::Wlr),
-        _ => Err(Error::Unsupported(
+        _ => portal_kind().ok_or(Error::Unsupported(
             "ext-image-copy-capture or wlr-screencopy",
         )),
+    }
+}
+
+fn portal_kind() -> Option<Kind> {
+    #[cfg(feature = "portal")]
+    {
+        Some(Kind::Portal)
+    }
+    #[cfg(not(feature = "portal"))]
+    {
+        None
     }
 }
 
@@ -247,6 +281,18 @@ fn to_bgrx(mut data: Vec<u8>, format: wl_shm::Format) -> Vec<u8> {
         }
     }
     data
+}
+
+fn pack_rows(raw: &[u8], width: u32, stride: u32, y_invert: bool) -> Vec<u8> {
+    let row = width as usize * 4;
+    let mut rows: Vec<&[u8]> = raw
+        .chunks_exact(stride as usize)
+        .filter_map(|chunk| chunk.get(..row))
+        .collect();
+    if y_invert {
+        rows.reverse();
+    }
+    rows.concat()
 }
 
 fn shm_buffer(
@@ -454,6 +500,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn padding_at_the_end_of_each_row_is_removed() {
+        let raw = [
+            1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 9, 10, 11, 12, 13, 14, 15, 16, 0, 0, 0, 0,
+        ];
+        let packed = pack_rows(&raw, 2, 12, false);
+        assert_eq!(
+            packed,
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        );
+    }
+
+    #[test]
+    fn rows_are_flipped_when_the_frame_is_upside_down() {
+        let raw = [1, 1, 1, 1, 2, 2, 2, 2];
+        assert_eq!(pack_rows(&raw, 1, 4, true), [2, 2, 2, 2, 1, 1, 1, 1]);
+        assert_eq!(pack_rows(&raw, 1, 4, false), raw);
+    }
+
+    #[test]
     fn stopping_a_clone_stops_the_original_handle() {
         let handle = StopHandle::new();
         let clone = handle.clone();
@@ -472,11 +537,36 @@ mod tests {
         assert!(matches!(choose(None, false, true), Ok(Kind::Wlr)));
     }
 
+    #[cfg(not(feature = "portal"))]
     #[test]
     fn fails_when_nothing_is_offered() {
         assert!(matches!(
             choose(None, false, false),
             Err(Error::Unsupported(_))
+        ));
+    }
+
+    #[cfg(not(feature = "portal"))]
+    #[test]
+    fn forcing_the_portal_needs_the_portal_feature() {
+        assert!(matches!(
+            choose(Some("portal"), true, true),
+            Err(Error::Unsupported(_))
+        ));
+    }
+
+    #[cfg(feature = "portal")]
+    #[test]
+    fn falls_back_to_the_portal_when_nothing_is_offered() {
+        assert!(matches!(choose(None, false, false), Ok(Kind::Portal)));
+    }
+
+    #[cfg(feature = "portal")]
+    #[test]
+    fn the_portal_can_be_forced_when_other_backends_exist() {
+        assert!(matches!(
+            choose(Some("portal"), true, true),
+            Ok(Kind::Portal)
         ));
     }
 

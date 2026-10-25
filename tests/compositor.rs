@@ -98,6 +98,35 @@ fn stops_capture_while_the_screen_is_idle() {
     }
 }
 
+#[cfg(feature = "portal")]
+#[test]
+#[ignore = "needs xdg-desktop-portal with a ScreenCast backend"]
+fn captures_and_stops_through_the_portal() {
+    // SAFETY: this test is one thread and does not spawn another before reading the variable.
+    unsafe { env::set_var("WL_CAST_CAPTURE", "portal") };
+    let mut capture = Capture::new(0).unwrap();
+    let (width, height) = capture.size();
+    assert!(width > 0 && height > 0);
+
+    let frame = capture.next_frame().unwrap();
+    assert_eq!(
+        frame.data.len(),
+        frame.width as usize * frame.height as usize * 4
+    );
+
+    let handle = StopHandle::new();
+    capture.set_stop_handle(&handle);
+    handle.stop();
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(2) {
+        if let Err(error) = capture.next_frame() {
+            assert!(matches!(error, Error::Stopped), "{error:?}");
+            return;
+        }
+    }
+    panic!("capture did not stop");
+}
+
 fn headless_output() -> String {
     let text = swaymsg(&["-t", "get_outputs"]);
     let start = text

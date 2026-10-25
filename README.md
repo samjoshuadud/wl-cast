@@ -42,11 +42,19 @@ wl-cast picks a backend by what the compositor offers, not by its name. Capture 
 | labwc | 0.20.2 | ext, wlr | yes | Works |
 | river | 0.3.17 (river-classic) | ext, wlr | yes | Works |
 | COSMIC | - | ext | keyboard only | Not tested. Mouse needs the portal backend. |
-| GNOME, KDE | - | - | - | Planned, through xdg-desktop-portal |
+| GNOME, KDE | - | portal | - | Capture not tested yet. Input planned. |
 
-Hyprland was tested directly. The others were tested running nested inside Hyprland.
+Hyprland was tested directly. The others were tested running nested inside Hyprland. The portal capture path was tested through xdg-desktop-portal-hyprland.
 
-To force a capture backend, set `WL_CAST_CAPTURE=ext` or `WL_CAST_CAPTURE=wlr`.
+To force a capture backend, set `WL_CAST_CAPTURE` to `ext`, `wlr` or `portal`.
+
+## Desktop portal (GNOME, KDE)
+
+With the `portal` feature, compositors that offer neither capture protocol go through xdg-desktop-portal and PipeWire. The desktop shows a dialog to pick the monitor, so the monitor index passed to `Capture::new` is not used on this path. It needs the PipeWire development files and clang:
+
+```sh
+cargo build --features portal
+```
 
 ## Build
 
@@ -97,7 +105,7 @@ The viewer sends one text line per event on a data channel named `input`.
 
 ## Known limits
 
-- Linux and Wayland only. GNOME and KDE are not supported yet.
+- Linux and Wayland only. On GNOME and KDE, capture needs the `portal` feature and input is not supported yet.
 - One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
 - Unplugging a monitor during a session is not handled. A resize or rotation is followed.
 - No audio, clipboard or multi-monitor switching.
