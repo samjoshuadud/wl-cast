@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
 ### Added
 
 - `EncoderConfig` and `Encoder::with_config` set the bitrate, frame rate and H.264 profile. `Encoder::new` still uses 8 Mbit/s and 60 frames per second.
