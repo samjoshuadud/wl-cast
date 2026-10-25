@@ -10,6 +10,9 @@ keywords = ["wayland", "screencast", "screen-capture", "hyprland", "remote-deskt
 categories = ["multimedia::video", "os::linux-apis"]
 exclude = [".github", "flake.nix", "flake.lock"]
 
+[package.metadata.docs.rs]
+features = ["webrtc"]
+
 [dependencies]
 ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-scaling"], optional = true }
 openh264 = "0.9.9"
