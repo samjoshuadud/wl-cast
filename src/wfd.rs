@@ -89,6 +89,8 @@ pub struct WfdSource {
     stage: Stage,
     cseq: u32,
     port: u16,
+    server_port: u16,
+    last: String,
     video: VideoMode,
 }
 
@@ -101,12 +103,19 @@ impl WfdSource {
             stage: Stage::WaitM1,
             cseq: 0,
             port: 0,
+            server_port: 0,
+            last: String::from("OPTIONS"),
             video: VideoMode {
                 width: 1280,
                 height: 720,
                 frame_rate: 30,
             },
         }
+    }
+
+    /// Names the UDP port this source sends from, for the SETUP reply.
+    pub fn set_server_port(&mut self, port: u16) {
+        self.server_port = port;
     }
 
     /// Returns the first message to write on the socket the sink opened.
@@ -137,7 +146,13 @@ impl WfdSource {
         if let Some(status) = message.status()
             && status >= 400
         {
-            return Err(Error::Wfd(format!("the sink returned {status}")));
+            return Err(Error::Wfd(format!(
+                "the sink returned {status} to {}",
+                self.last
+            )));
+        }
+        if message.method() == Some("PLAY") {
+            return self.play(message);
         }
         if message.method() == Some("OPTIONS") {
             return Ok(self.options(message));
@@ -210,13 +225,37 @@ impl WfdSource {
         if self.port == 0 {
             return Err(Error::Wfd("the sink did not give a video port".into()));
         }
+        let transport = if self.server_port == 0 {
+            format!("client_port={}", self.port)
+        } else {
+            format!(
+                "client_port={};server_port={}-{}",
+                self.port,
+                self.server_port,
+                self.server_port.saturating_add(1)
+            )
+        };
         let reply = format!(
-            "RTSP/1.0 200 OK\r\nCSeq: {}\r\nSession: {SESSION};timeout=30\r\nTransport: RTP/AVP/UDP;unicast;client_port={}\r\n\r\n",
-            message.cseq(),
-            self.port
+            "RTSP/1.0 200 OK\r\nCSeq: {}\r\nSession: {SESSION};timeout=30\r\nTransport: RTP/AVP/UDP;unicast;{transport}\r\n\r\n",
+            message.cseq()
         );
         self.stage = Stage::WaitPlay;
-        Ok(vec![WfdAction::Send(reply), WfdAction::Send(self.play())])
+        Ok(vec![WfdAction::Send(reply)])
+    }
+
+    fn play(&mut self, message: &Message) -> Result<Vec<WfdAction>, Error> {
+        self.stage = Stage::Streaming;
+        let reply = format!(
+            "RTSP/1.0 200 OK\r\nCSeq: {}\r\nSession: {SESSION}\r\n\r\n",
+            message.cseq()
+        );
+        Ok(vec![
+            WfdAction::Send(reply),
+            WfdAction::Ready {
+                port: self.port,
+                video: self.video,
+            },
+        ])
     }
 
     fn streaming(&mut self, message: &Message) -> Vec<WfdAction> {
@@ -264,16 +303,9 @@ impl WfdSource {
         )
     }
 
-    fn play(&mut self) -> String {
-        self.request(
-            "PLAY",
-            &format!("rtsp://{}/wfd1.0/streamid=0", self.host),
-            "",
-        )
-    }
-
     fn request(&mut self, method: &str, url: &str, body: &str) -> String {
         self.cseq += 1;
+        self.last = method.to_string();
         if body.is_empty() {
             format!(
                 "{method} {url} RTSP/1.0\r\nCSeq: {}\r\nSession: {SESSION}\r\n\r\n",
@@ -685,25 +717,31 @@ mod tests {
         );
         assert!(feed(&mut source, "RTSP/1.0 200 OK\r\nCSeq: 4\r\n\r\n").is_empty());
 
+        source.set_server_port(50000);
         let actions = feed(
             &mut source,
             "SETUP rtsp://192.168.49.200/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 2\r\nTransport: RTP/AVP/UDP;unicast;client_port=19000\r\n\r\n",
         );
         let messages = messages_of(&actions);
+        assert_eq!(messages.len(), 1);
         assert!(messages[0].contains("Session: 00000001"));
-        assert!(messages[1].starts_with("PLAY "));
+        assert!(messages[0].contains("server_port=50000-50001"));
 
-        let actions = feed(&mut source, "RTSP/1.0 200 OK\r\nCSeq: 5\r\n\r\n");
+        let actions = feed(
+            &mut source,
+            "PLAY rtsp://192.168.49.200/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 3\r\nSession: 00000001\r\n\r\n",
+        );
+        assert!(matches!(actions[0], WfdAction::Send(_)));
         assert_eq!(
-            actions,
-            vec![WfdAction::Ready {
+            actions[1],
+            WfdAction::Ready {
                 port: 19000,
                 video: VideoMode {
                     width: 1280,
                     height: 720,
                     frame_rate: 30,
                 },
-            }]
+            }
         );
     }
 
@@ -810,7 +848,10 @@ mod tests {
             &mut source,
             "SETUP rtsp://192.168.49.200/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 1\r\nTransport: RTP/AVP/UDP;unicast;client_port=19000\r\n\r\n",
         );
-        feed(&mut source, "RTSP/1.0 200 OK\r\nCSeq: 5\r\n\r\n");
+        feed(
+            &mut source,
+            "PLAY rtsp://192.168.49.200/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 3\r\nSession: 00000001\r\n\r\n",
+        );
         source
     }
 }

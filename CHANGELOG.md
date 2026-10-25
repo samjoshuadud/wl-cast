@@ -10,6 +10,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `WfdSource` runs the Miracast RTSP setup. `MpegTsRtp` packs H.264 into MPEG-TS RTP. `scale_bgra` resizes a frame to the mode the sink accepted.
+- The sink sends `PLAY`. Answering that starts the video. Sending `PLAY` to the sink is rejected.
 
 ## [0.2.2] - 2026-10-25
 
