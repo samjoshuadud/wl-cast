@@ -12,8 +12,6 @@ use futures_lite::future::block_on;
 use super::{MouseButton, PressState};
 use crate::Error;
 
-const XKB_KEYCODE_OFFSET: i32 = 8;
-
 pub(super) struct PortalInput {
     proxy: RemoteDesktop,
     session: Session<RemoteDesktop>,
@@ -163,10 +161,7 @@ fn absolute_position(x: f64, y: f64, width: f64, height: f64) -> (f64, f64) {
 }
 
 fn portal_keycode(code: u32) -> Result<i32, Error> {
-    i32::try_from(code)
-        .ok()
-        .and_then(|code| code.checked_add(XKB_KEYCODE_OFFSET))
-        .ok_or_else(|| Error::Portal("key code does not fit".into()))
+    i32::try_from(code).map_err(|_| Error::Portal("key code does not fit".into()))
 }
 
 fn key_state(press: PressState) -> KeyState {
@@ -191,8 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn linux_key_codes_become_xkb_keycodes() {
-        assert_eq!(portal_keycode(30).unwrap(), 38);
+    fn linux_key_codes_are_sent_unchanged() {
+        assert_eq!(portal_keycode(30).unwrap(), 30);
         assert!(portal_keycode(u32::MAX).is_err());
     }
 
