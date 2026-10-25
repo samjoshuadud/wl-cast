@@ -42,10 +42,10 @@ wl-cast picks a backend by what the compositor offers, not by its name. Capture 
 | labwc | 0.20.2 | ext, wlr | yes | Works |
 | river | 0.3.17 (river-classic) | ext, wlr | yes | Works |
 | COSMIC | - | ext | keyboard only | Not tested. Mouse needs the portal backend. |
-| GNOME | Ubuntu 26.04.1 | portal | portal | Capture works. Input not tested yet. |
+| GNOME | Ubuntu 26.04.1 | portal | portal | Capture and pointer work. |
 | KDE | - | portal | - | Capture not tested yet. Input planned. |
 
-Hyprland was tested directly. The others were tested running nested inside Hyprland. Portal capture was tested on Ubuntu 26.04.1 (GNOME) in a virtual machine, and through xdg-desktop-portal-hyprland.
+Hyprland was tested directly. The others were tested running nested inside Hyprland. Portal capture and pointer input were tested on Ubuntu 26.04.1 (GNOME) in a virtual machine. Portal capture was also tested through xdg-desktop-portal-hyprland.
 
 To force a capture backend, set `WL_CAST_CAPTURE` to `ext`, `wlr` or `portal`.
 
@@ -106,7 +106,7 @@ The viewer sends one text line per event on a data channel named `input`.
 
 ## Known limits
 
-- Linux and Wayland only. GNOME and KDE capture and input need the `portal` feature. KDE is not tested yet. GNOME input is not tested yet.
+- Linux and Wayland only. GNOME and KDE capture and input need the `portal` feature. KDE is not tested yet.
 - One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
 - Unplugging a monitor during a session is not handled. A resize or rotation is followed.
 - No audio, clipboard or multi-monitor switching.
