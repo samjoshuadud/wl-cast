@@ -86,7 +86,8 @@ impl Encoder {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if no encoder can be opened, not even `OpenH264`.
+    /// Returns [`Error::Encode`] if `width` or `height` is odd, or if no encoder can be opened,
+    /// not even `OpenH264`.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
         Self::with_config(width, height, EncoderConfig::default())
     }
@@ -95,8 +96,12 @@ impl Encoder {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if the bitrate or frame rate is 0, or if no encoder can be opened.
+    /// Returns [`Error::Encode`] if `width` or `height` is odd, the bitrate or frame rate is 0,
+    /// or if no encoder can be opened.
     pub fn with_config(width: u32, height: u32, config: EncoderConfig) -> Result<Self, Error> {
+        if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+            return Err(Error::Encode("width and height must be even".into()));
+        }
         if config.bitrate_bps == 0 {
             return Err(Error::Encode("bitrate must be at least 1".into()));
         }
@@ -186,6 +191,18 @@ mod tests {
         assert_eq!(config.frame_rate, 60);
         assert_eq!(config.profile, H264Profile::Unspecified);
         assert_eq!(EncoderConfig::new(8_000_000, 60), config);
+    }
+
+    #[test]
+    fn rejects_an_odd_width_or_height() {
+        assert!(matches!(
+            Encoder::new(17, 16),
+            Err(Error::Encode(reason)) if reason == "width and height must be even"
+        ));
+        assert!(matches!(
+            Encoder::with_config(16, 17, EncoderConfig::default()),
+            Err(Error::Encode(reason)) if reason == "width and height must be even"
+        ));
     }
 
     #[test]

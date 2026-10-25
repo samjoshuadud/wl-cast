@@ -11,6 +11,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - The `portal` feature captures through xdg-desktop-portal and PipeWire on compositors without ext-image-copy-capture or wlr-screencopy, such as GNOME and KDE. `WL_CAST_CAPTURE=portal` forces it. Failures are reported as `Error::Portal`.
 
+### Fixed
+
+- `Encoder::new` and `Encoder::with_config` return an error when the width or height is odd, instead of crashing inside OpenH264.
+
 ## [0.2.1] - 2026-10-25
 
 ### Added
