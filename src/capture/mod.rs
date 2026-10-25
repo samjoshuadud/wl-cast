@@ -117,6 +117,25 @@ impl Capture {
     /// method is available, [`Error::OutputNotFound`] if there is no monitor at `output_index`,
     /// or `Error::Portal` if the portal or PipeWire fails or the choice is cancelled.
     pub fn new(output_index: usize) -> Result<Self, Error> {
+        Self::open(Selector::Index(output_index))
+    }
+
+    /// Starts capturing the monitor named `name`, such as `eDP-1`.
+    ///
+    /// The compositor reports that name on `wl_output` version 4. [`Capture::new`] still selects
+    /// by index. With the `portal` feature, the desktop asks which monitor to share and `name` is
+    /// not used.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Connect`] if there is no compositor, [`Error::Unsupported`] if no capture
+    /// method is available, [`Error::UnknownOutput`] if no monitor has `name`,
+    /// or `Error::Portal` if the portal or PipeWire fails or the choice is cancelled.
+    pub fn by_name(name: &str) -> Result<Self, Error> {
+        Self::open(Selector::Name(name))
+    }
+
+    fn open(selector: Selector<'_>) -> Result<Self, Error> {
         let conn = Connection::connect_to_env()?;
         let mut queue = conn.new_event_queue::<State>();
         let qh = queue.handle();
@@ -127,7 +146,15 @@ impl Capture {
         queue.roundtrip(&mut state)?;
 
         let preference = std::env::var("WL_CAST_CAPTURE").ok();
-        let backend = match choose(preference.as_deref(), state.has_ext(), state.has_wlr())? {
+        let kind = choose(preference.as_deref(), state.has_ext(), state.has_wlr())?;
+        let output_index = match (&kind, selector) {
+            #[cfg(feature = "portal")]
+            (Kind::Portal, _) => 0,
+            (_, Selector::Index(index)) => index,
+            (_, Selector::Name(name)) => output_index(&state.output_names, name)
+                .ok_or_else(|| Error::UnknownOutput(name.to_string()))?,
+        };
+        let backend = match kind {
             Kind::Ext => Backend::Ext(ext_image_copy::ExtCapture::new(queue, state, output_index)?),
             Kind::Wlr => Backend::Wlr(wlr_screencopy::WlrCapture::new(queue, state, output_index)?),
             #[cfg(feature = "portal")]
@@ -366,6 +393,7 @@ fn orient(data: Vec<u8>, width: u32, height: u32, transform: Transform) -> Vec<u
 #[derive(Default)]
 struct State {
     outputs: Vec<WlOutput>,
+    output_names: Vec<String>,
     output_transforms: Vec<Transform>,
     shm: Option<WlShm>,
     frame_ready: bool,
@@ -447,7 +475,10 @@ impl Dispatch<WlRegistry, ()> for State {
             match interface.as_str() {
                 "wl_output" => {
                     let index = state.outputs.len();
-                    state.outputs.push(registry.bind(name, 1, qh, index));
+                    state
+                        .outputs
+                        .push(registry.bind(name, version.min(4), qh, index));
+                    state.output_names.push(String::new());
                     state.output_transforms.push(Transform::Normal);
                 }
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
@@ -476,15 +507,32 @@ impl Dispatch<WlOutput, usize> for State {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Geometry {
-            transform: WEnum::Value(transform),
-            ..
-        } = event
-            && let Some(slot) = state.output_transforms.get_mut(*index)
-        {
-            *slot = transform;
+        match event {
+            wl_output::Event::Geometry {
+                transform: WEnum::Value(transform),
+                ..
+            } => {
+                if let Some(slot) = state.output_transforms.get_mut(*index) {
+                    *slot = transform;
+                }
+            }
+            wl_output::Event::Name { name } => {
+                if let Some(slot) = state.output_names.get_mut(*index) {
+                    *slot = name;
+                }
+            }
+            _ => {}
         }
     }
+}
+
+enum Selector<'a> {
+    Index(usize),
+    Name(&'a str),
+}
+
+fn output_index(names: &[String], name: &str) -> Option<usize> {
+    names.iter().position(|candidate| candidate == name)
 }
 
 delegate_noop!(State: ignore WlShm);
@@ -498,6 +546,14 @@ delegate_noop!(State: ZwlrScreencopyManagerV1);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_monitor_is_found_by_its_name() {
+        let names = vec!["eDP-1".into(), "HEADLESS-2".into()];
+        assert_eq!(output_index(&names, "HEADLESS-2"), Some(1));
+        assert_eq!(output_index(&names, "HDMI-A-1"), None);
+        assert_eq!(output_index(&names, ""), None);
+    }
 
     #[test]
     fn padding_at_the_end_of_each_row_is_removed() {

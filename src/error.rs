@@ -21,6 +21,9 @@ pub enum Error {
     /// No monitor exists at the given index.
     #[error("no output at index {0}")]
     OutputNotFound(usize),
+    /// No monitor has this name.
+    #[error("no output named {0}")]
+    UnknownOutput(String),
     /// The compositor could not capture the frame.
     #[error("frame capture failed")]
     CaptureFailed,

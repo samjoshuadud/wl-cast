@@ -26,7 +26,7 @@ let frame = capture.next_frame()?;
 let h264 = encoder.encode(&frame)?;
 ```
 
-`Input` moves the mouse and presses keys. `RtpSender` and `RemoteSession` send the video out. The `examples` folder has a runnable demo for each.
+`Capture::new(0)` is the first monitor. `Capture::by_name` uses the name the compositor reports, such as `eDP-1`. `Input` moves the mouse and presses keys. `RtpSender` and `RemoteSession` send the video out. The `examples` folder has a runnable demo for each.
 
 `Encoder::new` uses 8 Mbit/s and 60 frames per second. `Encoder::with_config` changes the bitrate, frame rate and H.264 profile. A WebRTC session reads the same settings from `SessionConfig.encoder`.
 
