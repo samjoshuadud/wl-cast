@@ -13,7 +13,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `Encoder::new` and `Encoder::with_config` return an error when the width or height is odd, instead of crashing inside OpenH264.
+- An odd width or height is encoded by duplicating the last column or row, instead of crashing inside OpenH264.
 
 ## [0.2.1] - 2026-10-25
 

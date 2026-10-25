@@ -82,26 +82,23 @@ enum Backend {
 impl Encoder {
     /// Opens an encoder for frames of exactly `width` by `height` pixels.
     ///
-    /// Uses [`EncoderConfig::default`].
+    /// Uses [`EncoderConfig::default`]. An odd width or height is rounded up by one pixel.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if `width` or `height` is odd, or if no encoder can be opened,
-    /// not even `OpenH264`.
+    /// Returns [`Error::Encode`] if no encoder can be opened, not even `OpenH264`.
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
         Self::with_config(width, height, EncoderConfig::default())
     }
 
     /// Opens an encoder with the given bitrate, frame rate and profile.
     ///
+    /// An odd width or height is rounded up by one pixel.
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if `width` or `height` is odd, the bitrate or frame rate is 0,
-    /// or if no encoder can be opened.
+    /// Returns [`Error::Encode`] if the bitrate or frame rate is 0, or if no encoder can be opened.
     pub fn with_config(width: u32, height: u32, config: EncoderConfig) -> Result<Self, Error> {
-        if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
-            return Err(Error::Encode("width and height must be even".into()));
-        }
         if config.bitrate_bps == 0 {
             return Err(Error::Encode("bitrate must be at least 1".into()));
         }
@@ -110,7 +107,8 @@ impl Encoder {
         }
 
         #[cfg(feature = "ffmpeg")]
-        if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(width, height, config) {
+        if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(even(width), even(height), config)
+        {
             return Ok(Self {
                 backend: Backend::Hardware(encoder),
                 width,
@@ -158,12 +156,43 @@ impl Encoder {
             return Err(Error::InvalidFrame);
         }
 
+        let padded;
+        let frame = if frame.width.is_multiple_of(2) && frame.height.is_multiple_of(2) {
+            frame
+        } else {
+            padded = pad_even(frame);
+            &padded
+        };
+
         match &mut self.backend {
             #[cfg(feature = "ffmpeg")]
             Backend::Hardware(encoder) => encoder.encode(frame),
             Backend::Software(encoder) => encoder.encode(frame),
         }
     }
+}
+
+fn even(size: u32) -> u32 {
+    size.div_ceil(2) * 2
+}
+
+fn pad_even(frame: &Frame) -> Frame {
+    let width = even(frame.width);
+    let height = even(frame.height);
+    let src_row = frame.width as usize * 4;
+    let dst_row = width as usize * 4;
+    let mut data = Vec::with_capacity(dst_row * height as usize);
+    for row in frame.data.chunks_exact(src_row) {
+        data.extend_from_slice(row);
+        if width != frame.width {
+            data.extend_from_slice(&row[src_row - 4..]);
+        }
+    }
+    if height != frame.height {
+        let last = data.len() - dst_row;
+        data.extend_from_within(last..);
+    }
+    Frame::new(width, height, data, frame.captured_at)
 }
 
 impl fmt::Debug for Encoder {
@@ -194,15 +223,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_odd_width_or_height() {
-        assert!(matches!(
-            Encoder::new(17, 16),
-            Err(Error::Encode(reason)) if reason == "width and height must be even"
-        ));
-        assert!(matches!(
-            Encoder::with_config(16, 17, EncoderConfig::default()),
-            Err(Error::Encode(reason)) if reason == "width and height must be even"
-        ));
+    fn an_odd_edge_is_a_copy_of_the_last_pixel() {
+        let frame = Frame::new(1, 1, vec![1, 2, 3, 4], Instant::now());
+        let padded = pad_even(&frame);
+        assert_eq!((padded.width, padded.height), (2, 2));
+        assert_eq!(padded.data, [1, 2, 3, 4].repeat(4));
+    }
+
+    #[test]
+    fn encodes_an_odd_width_or_height() {
+        for (width, height) in [(17, 16), (16, 17)] {
+            let mut encoder = Encoder::new(width, height).unwrap();
+            let frame = Frame::new(
+                width,
+                height,
+                vec![0; width as usize * height as usize * 4],
+                Instant::now(),
+            );
+            assert!(!encoder.encode(&frame).unwrap().is_empty());
+        }
     }
 
     #[test]
