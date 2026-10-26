@@ -1,11 +1,12 @@
 use std::ptr;
 
 use ffmpeg_next::{
-    self as ffmpeg, Dictionary, Packet, Rational, codec, encoder, ffi, format::Pixel, frame,
-    picture, software::scaling,
+    self as ffmpeg, Dictionary, Packet, Rational, codec, color, encoder, ffi, format::Pixel, frame,
+    picture,
 };
+use yuv::YuvBiPlanarImageMut;
 
-use super::{EncoderConfig, H264Profile};
+use super::{EncoderConfig, H264Profile, convert};
 use crate::{Error, Frame};
 
 const X264: &str = "libx264";
@@ -17,8 +18,7 @@ const SUPERFAST_MAX_PIXEL_RATE: u64 = 2 * VERYFAST_MAX_PIXEL_RATE;
 pub(crate) struct FfmpegEncoder {
     name: &'static str,
     encoder: encoder::Video,
-    scaler: scaling::Context,
-    bgrx: frame::Video,
+    image: YuvBiPlanarImageMut<'static, u8>,
     nv12: frame::Video,
     gpu_frames: Option<GpuFrames>,
     pts: i64,
@@ -34,6 +34,23 @@ fn forced_name(preference: Option<&str>) -> Option<&'static str> {
         Some("nvenc") => Some("h264_nvenc"),
         Some("x264") => Some(X264),
         _ => None,
+    }
+}
+
+fn copy_plane(
+    source: &[u8],
+    source_stride: usize,
+    target: &mut [u8],
+    target_stride: usize,
+    row_bytes: usize,
+) {
+    for (to, from) in target
+        .chunks_mut(target_stride)
+        .zip(source.chunks(source_stride))
+    {
+        if let (Some(to), Some(from)) = (to.get_mut(..row_bytes), from.get(..row_bytes)) {
+            to.copy_from_slice(from);
+        }
     }
 }
 
@@ -104,6 +121,10 @@ impl FfmpegEncoder {
         video.set_bit_rate(config.bitrate_bps as usize);
         video.set_gop(config.frame_rate);
         video.set_max_b_frames(0);
+        video.set_colorspace(color::Space::BT709);
+        video.set_color_range(color::Range::MPEG);
+        video.set_color_primaries(color::Primaries::BT709);
+        video.set_color_transfer_characteristic(color::TransferCharacteristic::BT709);
 
         let gpu_frames = if name == "h264_vaapi" {
             let gpu_frames = GpuFrames::new(width, height)?;
@@ -145,22 +166,11 @@ impl FfmpegEncoder {
         }
 
         let encoder = video.open_as_with(codec, options).map_err(ffmpeg_error)?;
-        let scaler = scaling::Context::get(
-            Pixel::BGRZ,
-            width,
-            height,
-            Pixel::NV12,
-            width,
-            height,
-            scaling::Flags::FAST_BILINEAR,
-        )
-        .map_err(ffmpeg_error)?;
 
         Ok(Self {
             name,
             encoder,
-            scaler,
-            bgrx: frame::Video::new(Pixel::BGRZ, width, height),
+            image: convert::nv12_image(width, height),
             nv12: frame::Video::new(Pixel::NV12, width, height),
             gpu_frames,
             pts: 0,
@@ -177,16 +187,23 @@ impl FfmpegEncoder {
     }
 
     pub(crate) fn encode(&mut self, frame: &Frame) -> Result<Vec<u8>, Error> {
-        let row = frame.width as usize * 4;
-        let stride = self.bgrx.stride(0);
-        let plane = self.bgrx.data_mut(0);
-        for (y, src) in frame.data.chunks_exact(row).enumerate() {
-            plane[y * stride..y * stride + row].copy_from_slice(src);
-        }
-
-        self.scaler
-            .run(&self.bgrx, &mut self.nv12)
-            .map_err(ffmpeg_error)?;
+        convert::to_nv12(frame, &mut self.image)?;
+        let row_bytes = frame.width as usize;
+        let (y_stride, uv_stride) = (self.nv12.stride(0), self.nv12.stride(1));
+        copy_plane(
+            self.image.y_plane.borrow(),
+            self.image.y_stride as usize,
+            self.nv12.data_mut(0),
+            y_stride,
+            row_bytes,
+        );
+        copy_plane(
+            self.image.uv_plane.borrow(),
+            self.image.uv_stride as usize,
+            self.nv12.data_mut(1),
+            uv_stride,
+            row_bytes,
+        );
 
         let mut input = match &self.gpu_frames {
             Some(gpu_frames) => gpu_frames.upload(&self.nv12)?,
@@ -332,6 +349,14 @@ mod tests {
         let mut data = vec![100; 64 * 64 * 4];
         data[..64 * 4 * 4].fill(patch);
         Frame::new(64, 64, data, Instant::now())
+    }
+
+    #[test]
+    fn rows_are_copied_without_the_padding_of_either_side() {
+        let source = [1, 2, 3, 0, 4, 5, 6, 0];
+        let mut target = [9; 10];
+        copy_plane(&source, 4, &mut target, 5, 3);
+        assert_eq!(target, [1, 2, 3, 9, 9, 4, 5, 6, 9, 9]);
     }
 
     #[test]

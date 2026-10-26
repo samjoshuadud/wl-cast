@@ -99,7 +99,7 @@ fn child(args: &[String]) -> Result<(), Box<dyn Error>> {
         .map(|(picture, &n)| {
             psnr(
                 &sources[n % distinct].data,
-                &to_bgra(picture, Matrix::Bt601),
+                &to_bgra(picture, Matrix::Bt709),
             )
         })
         .collect();

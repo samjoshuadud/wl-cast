@@ -1,3 +1,4 @@
+mod convert;
 #[cfg(feature = "ffmpeg")]
 mod ffmpeg;
 mod openh264;
@@ -213,24 +214,25 @@ fn open_backend(
     {
         return Ok(Backend::Ffmpeg(encoder));
     }
-    Ok(Backend::Software(Box::new(openh264::SoftwareEncoder::new(
-        config,
-    )?)))
+    software(width, height, config)
 }
 
 #[cfg(not(feature = "ffmpeg"))]
 fn open_backend(
-    _width: u32,
-    _height: u32,
+    width: u32,
+    height: u32,
     config: EncoderConfig,
     preference: Option<&str>,
 ) -> Result<Backend, Error> {
     if matches!(preference, Some("vaapi" | "nvenc" | "x264")) {
         return Err(Error::Unsupported("the ffmpeg feature"));
     }
-    Ok(Backend::Software(Box::new(openh264::SoftwareEncoder::new(
-        config,
-    )?)))
+    software(width, height, config)
+}
+
+fn software(width: u32, height: u32, config: EncoderConfig) -> Result<Backend, Error> {
+    let encoder = openh264::SoftwareEncoder::new(config, even(width), even(height))?;
+    Ok(Backend::Software(Box::new(encoder)))
 }
 
 fn even(size: u32) -> u32 {
@@ -333,6 +335,51 @@ mod tests {
                 Instant::now(),
             );
             assert!(!encoder.encode(&frame).unwrap().is_empty());
+        }
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    fn decoded_colors(h264: &[u8]) -> (ffmpeg_next::color::Space, ffmpeg_next::color::Range) {
+        use ffmpeg_next::{Packet, codec, decoder, frame};
+
+        ffmpeg_next::init().unwrap();
+        let codec = decoder::find(codec::Id::H264).unwrap();
+        let mut decoder = codec::context::Context::new_with_codec(codec)
+            .decoder()
+            .video()
+            .unwrap();
+        decoder.send_packet(&Packet::copy(h264)).unwrap();
+        decoder.send_eof().unwrap();
+        let mut picture = frame::Video::empty();
+        decoder.receive_frame(&mut picture).unwrap();
+        assert_eq!(
+            picture.color_primaries(),
+            ffmpeg_next::color::Primaries::BT709
+        );
+        assert_eq!(
+            picture.color_transfer_characteristic(),
+            ffmpeg_next::color::TransferCharacteristic::BT709
+        );
+        (picture.color_space(), picture.color_range())
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn every_encoder_tags_its_stream_as_bt709_limited_range() {
+        use ffmpeg_next::color::{Range, Space};
+
+        let frame = Frame::new(64, 64, vec![128; 64 * 64 * 4], Instant::now());
+        for name in ["openh264", "x264", "vaapi", "nvenc"] {
+            let Ok(mut encoder) = Encoder::open(64, 64, EncoderConfig::default(), Some(name))
+            else {
+                continue;
+            };
+            let bytes = encoder.encode(&frame).unwrap();
+            assert_eq!(
+                decoded_colors(&bytes),
+                (Space::BT709, Range::MPEG),
+                "{name}"
+            );
         }
     }
 
