@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-26
+
 ### Fixed
 
 - Colors were wrong in browsers. wl-cast encoded in the BT.601 color matrix without saying so, and browsers assume BT.709 for HD video, so saturated colors looked dull (pure green showed as 0,216,2). Every encoder now converts with BT.709, limited range, and tags the stream. Pure green now shows as 0,255,11.
