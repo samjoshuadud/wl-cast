@@ -8,7 +8,11 @@ use ffmpeg_next::{
 use super::{EncoderConfig, H264Profile};
 use crate::{Error, Frame};
 
-const CANDIDATES: [&str; 2] = ["h264_vaapi", "h264_nvenc"];
+const X264: &str = "libx264";
+const CANDIDATES: [&str; 3] = ["h264_vaapi", "h264_nvenc", X264];
+const VBV_MILLISECONDS: u64 = 500;
+const VERYFAST_MAX_PIXEL_RATE: u64 = 1920 * 1080 * 60;
+const SUPERFAST_MAX_PIXEL_RATE: u64 = 2 * VERYFAST_MAX_PIXEL_RATE;
 
 pub(crate) struct FfmpegEncoder {
     name: &'static str,
@@ -28,7 +32,26 @@ fn forced_name(preference: Option<&str>) -> Option<&'static str> {
     match preference {
         Some("vaapi") => Some("h264_vaapi"),
         Some("nvenc") => Some("h264_nvenc"),
+        Some("x264") => Some(X264),
         _ => None,
+    }
+}
+
+fn x264_preset(width: u32, height: u32, frame_rate: u32) -> &'static str {
+    let pixel_rate = u64::from(width) * u64::from(height) * u64::from(frame_rate);
+    if pixel_rate <= VERYFAST_MAX_PIXEL_RATE {
+        "veryfast"
+    } else if pixel_rate <= SUPERFAST_MAX_PIXEL_RATE {
+        "superfast"
+    } else {
+        "ultrafast"
+    }
+}
+
+fn x264_profile(profile: H264Profile) -> H264Profile {
+    match profile {
+        H264Profile::ConstrainedBaseline => H264Profile::Baseline,
+        other => other,
     }
 }
 
@@ -53,7 +76,7 @@ impl FfmpegEncoder {
         for name in names {
             match Self::open(name, width, height, config) {
                 Ok(encoder) => return Ok(Some(encoder)),
-                Err(error) if forced.is_some() => return Err(error),
+                Err(error) if forced.is_some() => return Err(named(name, error)),
                 Err(_) => {}
             }
         }
@@ -94,9 +117,22 @@ impl FfmpegEncoder {
             None
         };
 
+        let profile = if name == X264 {
+            x264_profile(config.profile)
+        } else {
+            config.profile
+        };
         let mut options = Dictionary::new();
-        if let Some(profile) = ffmpeg_profile(config.profile) {
+        if let Some(profile) = ffmpeg_profile(profile) {
             options.set("profile", profile);
+        }
+        if name == X264 {
+            let bitrate = u64::from(config.bitrate_bps);
+            options.set("preset", x264_preset(width, height, config.frame_rate));
+            options.set("tune", "zerolatency");
+            options.set("forced-idr", "1");
+            options.set("maxrate", &bitrate.to_string());
+            options.set("bufsize", &(bitrate * VBV_MILLISECONDS / 1000).to_string());
         }
         if name == "h264_vaapi" {
             options.set("async_depth", "1");
@@ -258,18 +294,132 @@ fn ffmpeg_profile(profile: H264Profile) -> Option<&'static str> {
     }
 }
 
+fn named(name: &str, error: Error) -> Error {
+    match error {
+        Error::Encode(reason) => Error::Encode(format!("{name}: {reason}")),
+        other => other,
+    }
+}
+
 fn ffmpeg_error(error: ffmpeg::Error) -> Error {
     Error::Encode(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
+
+    fn x264_available() -> bool {
+        ffmpeg::init().is_ok() && encoder::find_by_name(X264).is_some()
+    }
+
+    fn nal_types(h264: &[u8]) -> Vec<u8> {
+        h264.windows(4)
+            .filter(|window| window[..3] == [0, 0, 1])
+            .map(|window| window[3] & 0x1F)
+            .collect()
+    }
+
+    fn sps_profile(h264: &[u8]) -> Option<u8> {
+        h264.windows(5)
+            .find(|window| window[..3] == [0, 0, 1] && window[3] & 0x1F == 7)
+            .map(|window| window[4])
+    }
+
+    fn frame(patch: u8) -> Frame {
+        let mut data = vec![100; 64 * 64 * 4];
+        data[..64 * 4 * 4].fill(patch);
+        Frame::new(64, 64, data, Instant::now())
+    }
 
     #[test]
     fn a_named_encoder_is_the_only_candidate() {
         assert_eq!(forced_name(Some("vaapi")), Some("h264_vaapi"));
         assert_eq!(forced_name(Some("nvenc")), Some("h264_nvenc"));
+        assert_eq!(forced_name(Some("x264")), Some("libx264"));
+    }
+
+    #[test]
+    fn a_failed_encoder_is_named_in_its_error() {
+        let error = named(
+            "h264_nvenc",
+            Error::Encode("Operation not permitted".into()),
+        );
+        assert_eq!(
+            error.to_string(),
+            "H.264 encoding failed: h264_nvenc: Operation not permitted"
+        );
+        assert!(matches!(
+            named("h264_nvenc", Error::InvalidFrame),
+            Error::InvalidFrame
+        ));
+    }
+
+    #[test]
+    fn x264_is_tried_after_the_gpu_encoders() {
+        assert_eq!(CANDIDATES, ["h264_vaapi", "h264_nvenc", "libx264"]);
+    }
+
+    #[test]
+    fn the_x264_preset_follows_the_pixel_rate() {
+        assert_eq!(x264_preset(1280, 720, 60), "veryfast");
+        assert_eq!(x264_preset(1920, 1080, 60), "veryfast");
+        assert_eq!(x264_preset(2560, 1440, 60), "superfast");
+        assert_eq!(x264_preset(3840, 2160, 30), "superfast");
+        assert_eq!(x264_preset(3840, 2160, 60), "ultrafast");
+    }
+
+    #[test]
+    fn x264_baseline_covers_constrained_baseline() {
+        assert_eq!(
+            x264_profile(H264Profile::ConstrainedBaseline),
+            H264Profile::Baseline
+        );
+        assert_eq!(x264_profile(H264Profile::High), H264Profile::High);
+        assert_eq!(
+            x264_profile(H264Profile::Unspecified),
+            H264Profile::Unspecified
+        );
+    }
+
+    #[test]
+    fn x264_makes_a_full_picture_on_request() {
+        if !x264_available() {
+            return;
+        }
+        let mut encoder = FfmpegEncoder::open(X264, 64, 64, EncoderConfig::default()).unwrap();
+        assert_eq!(encoder.name(), "libx264");
+
+        let first = encoder.encode(&frame(100)).unwrap();
+        assert!(nal_types(&first).contains(&5));
+        let second = encoder.encode(&frame(110)).unwrap();
+        assert!(!nal_types(&second).contains(&5));
+        encoder.request_keyframe();
+        let third = encoder.encode(&frame(120)).unwrap();
+        assert!(nal_types(&third).contains(&5));
+    }
+
+    #[test]
+    fn x264_writes_the_requested_profile() {
+        if !x264_available() {
+            return;
+        }
+        for (profile, expected) in [
+            (H264Profile::ConstrainedBaseline, 66),
+            (H264Profile::Baseline, 66),
+            (H264Profile::Main, 77),
+            (H264Profile::High, 100),
+        ] {
+            let config = EncoderConfig {
+                profile,
+                ..EncoderConfig::default()
+            };
+            let mut encoder = FfmpegEncoder::open(X264, 64, 64, config).unwrap();
+            let bytes = encoder.encode(&frame(100)).unwrap();
+            assert_eq!(sps_profile(&bytes), Some(expected), "{profile:?}");
+        }
     }
 
     #[test]

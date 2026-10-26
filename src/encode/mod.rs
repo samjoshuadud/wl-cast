@@ -66,9 +66,9 @@ pub enum H264Profile {
 
 /// Encodes frames to H.264, using the GPU when possible.
 ///
-/// With the `ffmpeg` feature it tries VA-API (Intel, AMD), then NVENC (Nvidia).
-/// Otherwise, or if no GPU encoder works, it falls back to `OpenH264` in software.
-/// Set the `WL_CAST_ENCODER` environment variable to `vaapi`, `nvenc` or `openh264` to force one.
+/// With the `ffmpeg` feature it tries VA-API (Intel, AMD), then NVENC (Nvidia), then x264 if the
+/// system FFmpeg has it. Otherwise, or if none of those open, it falls back to `OpenH264` in software.
+/// Set the `WL_CAST_ENCODER` environment variable to `vaapi`, `nvenc`, `x264` or `openh264` to force one.
 pub struct Encoder {
     backend: Backend,
     width: u32,
@@ -127,7 +127,7 @@ impl Encoder {
         })
     }
 
-    /// Returns the name of the encoder in use, for example `h264_vaapi` or `openh264`.
+    /// Returns the name of the encoder in use, for example `h264_vaapi`, `libx264` or `openh264`.
     pub fn name(&self) -> &'static str {
         match &self.backend {
             #[cfg(feature = "ffmpeg")]
@@ -201,7 +201,7 @@ fn open_backend(
     config: EncoderConfig,
     preference: Option<&str>,
 ) -> Result<Backend, Error> {
-    if matches!(preference, Some("vaapi" | "nvenc")) {
+    if matches!(preference, Some("vaapi" | "nvenc" | "x264")) {
         return Err(Error::Unsupported("the ffmpeg feature"));
     }
     Ok(Backend::Software(Box::new(openh264::SoftwareEncoder::new(
@@ -290,7 +290,7 @@ mod tests {
     #[cfg(not(feature = "ffmpeg"))]
     #[test]
     fn a_gpu_encoder_without_the_ffmpeg_feature_is_an_error() {
-        for name in ["vaapi", "nvenc"] {
+        for name in ["vaapi", "nvenc", "x264"] {
             let result = Encoder::open(16, 16, EncoderConfig::default(), Some(name));
             assert!(matches!(result, Err(Error::Unsupported(_))));
         }

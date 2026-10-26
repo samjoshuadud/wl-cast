@@ -9,7 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- The `WL_CAST_ENCODER` environment variable forces an encoder: `vaapi`, `nvenc` or `openh264`. A forced encoder that cannot open is an error, not a silent fallback.
+- With the `ffmpeg` feature, software encoding uses x264 when the system FFmpeg has it, before falling back to OpenH264. x264 is several times faster. Its speed setting follows the pixel rate.
+- The `WL_CAST_ENCODER` environment variable forces an encoder: `vaapi`, `nvenc`, `x264` or `openh264`. A forced encoder that cannot open is an error, not a silent fallback.
 
 ## [0.2.3] - 2026-10-25
 
