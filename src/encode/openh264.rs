@@ -24,6 +24,7 @@ impl SoftwareEncoder {
             .bitrate(BitRate::from_bps(config.bitrate_bps))
             .adaptive_quantization(false)
             .background_detection(false)
+            .skip_frames(false)
             .intra_frame_period(IntraFramePeriod::from_num_frames(config.frame_rate))
             .vui(VuiConfig::bt709());
         if let Some(profile) = openh264_profile(config.profile) {

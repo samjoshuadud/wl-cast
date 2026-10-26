@@ -11,6 +11,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Colors were wrong in browsers. wl-cast encoded in the BT.601 color matrix without saying so, and browsers assume BT.709 for HD video, so saturated colors looked dull (pure green showed as 0,216,2). Every encoder now converts with BT.709, limited range, and tags the stream. Pure green now shows as 0,255,11.
 
+- The OpenH264 encoder no longer skips frames when it goes over the bitrate. On busy full-screen video it skipped about a quarter of them, which looked like stutter. Every frame now produces output, and the timing is steadier.
+
 ### Changed
 
 - Color conversion uses the `yuv` crate for every encoder, and the `ffmpeg` feature no longer needs libswscale. It is also faster: VA-API encodes about 1.7 times as fast and uses about a third of the CPU in the new benchmark.

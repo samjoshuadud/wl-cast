@@ -384,6 +384,23 @@ mod tests {
     }
 
     #[test]
+    fn openh264_sends_something_for_every_frame_even_over_budget() {
+        let config = EncoderConfig::new(100_000, 30);
+        let mut encoder = Encoder::open(256, 256, config, Some("openh264")).unwrap();
+        let mut state = 12345_u32;
+        for _ in 0..20 {
+            let data = (0..256 * 256 * 4)
+                .map(|_| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    (state >> 24) as u8
+                })
+                .collect();
+            let frame = Frame::new(256, 256, data, Instant::now());
+            assert!(!encoder.encode(&frame).unwrap().is_empty());
+        }
+    }
+
+    #[test]
     fn openh264_can_be_forced() {
         let encoder = Encoder::open(16, 16, EncoderConfig::default(), Some("openh264")).unwrap();
         assert_eq!(encoder.name(), "openh264");
