@@ -39,7 +39,8 @@ pub struct SessionConfig {
     pub udp_port: u16,
     /// Your public address, if viewers connect from the internet.
     pub public_ip: Option<IpAddr>,
-    /// Bitrate, frame rate and H.264 profile for the video.
+    /// Bitrate, frame rate and H.264 profile for the video. The default chooses the bitrate from the
+    /// frame size, so it follows a monitor that changes size.
     pub encoder: EncoderConfig,
 }
 

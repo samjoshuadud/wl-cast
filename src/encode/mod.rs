@@ -6,18 +6,25 @@ use std::fmt;
 
 use crate::{Error, Frame};
 
-const DEFAULT_BITRATE_BPS: u32 = 8_000_000;
+const AUTOMATIC_BITRATE: u32 = 0;
 const DEFAULT_FRAME_RATE: u32 = 60;
+const MILLI_BITS_PER_PIXEL: u64 = 65;
+const MIN_AUTOMATIC_BITRATE_BPS: u64 = 1_000_000;
+const MAX_AUTOMATIC_BITRATE_BPS: u64 = 40_000_000;
 const ENCODER_ENV: &str = "WL_CAST_ENCODER";
 
 /// Bitrate, frame rate and H.264 profile for an [`Encoder`].
 ///
-/// [`Encoder::new`] uses [`EncoderConfig::default`]: 8 Mbit/s, 60 frames per second,
+/// [`Encoder::new`] uses [`EncoderConfig::default`]: an automatic bitrate, 60 frames per second,
 /// and the encoder's own profile.
+///
+/// An automatic bitrate (`bitrate_bps` of 0) is chosen from the frame size and the frame rate,
+/// at about 0.065 bits per pixel per frame, between 1 and 40 Mbit/s. That is about 8 Mbit/s for
+/// 1080p at 60 frames per second, and more for larger or faster screens.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EncoderConfig {
-    /// Target bitrate in bits per second.
+    /// Target bitrate in bits per second. 0 chooses it from the frame size and frame rate.
     pub bitrate_bps: u32,
     /// Frames per second.
     pub frame_rate: u32,
@@ -28,7 +35,8 @@ pub struct EncoderConfig {
 impl EncoderConfig {
     /// Creates encoder settings.
     ///
-    /// `bitrate_bps` is the target rate in bits per second. `frame_rate` is frames per second.
+    /// `bitrate_bps` is the target rate in bits per second, or 0 to choose it from the frame size.
+    /// `frame_rate` is frames per second.
     /// The profile stays [`H264Profile::Unspecified`].
     pub fn new(bitrate_bps: u32, frame_rate: u32) -> Self {
         Self {
@@ -41,7 +49,7 @@ impl EncoderConfig {
 
 impl Default for EncoderConfig {
     fn default() -> Self {
-        Self::new(DEFAULT_BITRATE_BPS, DEFAULT_FRAME_RATE)
+        Self::new(AUTOMATIC_BITRATE, DEFAULT_FRAME_RATE)
     }
 }
 
@@ -95,11 +103,13 @@ impl Encoder {
 
     /// Opens an encoder with the given bitrate, frame rate and profile.
     ///
+    /// A `bitrate_bps` of 0 is chosen from the frame size and frame rate.
+    ///
     /// An odd width or height is rounded up by one pixel.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if the bitrate or frame rate is 0, or if no encoder can be opened,
+    /// Returns [`Error::Encode`] if the frame rate is 0, or if no encoder can be opened,
     /// including the one named by `WL_CAST_ENCODER`. Returns [`Error::Unsupported`] if that name needs
     /// the `ffmpeg` feature and it is off.
     pub fn with_config(width: u32, height: u32, config: EncoderConfig) -> Result<Self, Error> {
@@ -113,15 +123,12 @@ impl Encoder {
         config: EncoderConfig,
         preference: Option<&str>,
     ) -> Result<Self, Error> {
-        if config.bitrate_bps == 0 {
-            return Err(Error::Encode("bitrate must be at least 1".into()));
-        }
         if config.frame_rate == 0 {
             return Err(Error::Encode("frame rate must be at least 1".into()));
         }
 
         Ok(Self {
-            backend: open_backend(width, height, config, preference)?,
+            backend: open_backend(width, height, resolved(config, width, height), preference)?,
             width,
             height,
         })
@@ -174,6 +181,23 @@ impl Encoder {
             Backend::Software(encoder) => encoder.encode(frame),
         }
     }
+}
+
+fn resolved(config: EncoderConfig, width: u32, height: u32) -> EncoderConfig {
+    if config.bitrate_bps != AUTOMATIC_BITRATE {
+        return config;
+    }
+    EncoderConfig {
+        bitrate_bps: automatic_bitrate_bps(width, height, config.frame_rate),
+        ..config
+    }
+}
+
+fn automatic_bitrate_bps(width: u32, height: u32, frame_rate: u32) -> u32 {
+    let pixel_rate = u64::from(width) * u64::from(height) * u64::from(frame_rate);
+    let bitrate = (pixel_rate * MILLI_BITS_PER_PIXEL / 1000)
+        .clamp(MIN_AUTOMATIC_BITRATE_BPS, MAX_AUTOMATIC_BITRATE_BPS);
+    u32::try_from(bitrate).unwrap_or(u32::MAX)
 }
 
 #[cfg(feature = "ffmpeg")]
@@ -251,12 +275,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_settings_keep_the_previous_bitrate_and_frame_rate() {
+    fn default_settings_ask_for_an_automatic_bitrate_at_60_frames_per_second() {
         let config = EncoderConfig::default();
-        assert_eq!(config.bitrate_bps, 8_000_000);
+        assert_eq!(config.bitrate_bps, 0);
         assert_eq!(config.frame_rate, 60);
         assert_eq!(config.profile, H264Profile::Unspecified);
-        assert_eq!(EncoderConfig::new(8_000_000, 60), config);
+        assert_eq!(EncoderConfig::new(0, 60), config);
+    }
+
+    #[test]
+    fn the_automatic_bitrate_for_1080p60_is_about_8_mbit() {
+        let bitrate = automatic_bitrate_bps(1920, 1080, 60);
+        assert!((8_000_000..8_200_000).contains(&bitrate), "{bitrate}");
+    }
+
+    #[test]
+    fn the_automatic_bitrate_grows_with_the_pixel_rate() {
+        let hd = automatic_bitrate_bps(1920, 1080, 60);
+        assert!(automatic_bitrate_bps(2560, 1440, 60) > hd);
+        assert!(automatic_bitrate_bps(1920, 1080, 30) < hd);
+        let half_rate = automatic_bitrate_bps(1920, 1080, 30);
+        assert!(half_rate.abs_diff(hd / 2) < 1000, "{half_rate} {hd}");
+    }
+
+    #[test]
+    fn the_automatic_bitrate_stays_between_1_and_40_mbit() {
+        assert_eq!(automatic_bitrate_bps(16, 16, 60), 1_000_000);
+        assert_eq!(automatic_bitrate_bps(0, 0, 60), 1_000_000);
+        assert_eq!(automatic_bitrate_bps(7680, 4320, 120), 40_000_000);
+    }
+
+    #[test]
+    fn a_named_bitrate_is_kept_and_zero_is_resolved() {
+        let named = EncoderConfig::new(3_000_000, 30);
+        assert_eq!(resolved(named, 3840, 2160), named);
+        let automatic = resolved(EncoderConfig::default(), 3840, 2160);
+        assert_eq!(automatic.bitrate_bps, automatic_bitrate_bps(3840, 2160, 60));
+        assert_eq!(automatic.frame_rate, 60);
     }
 
     #[test]
@@ -302,12 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_zero_bitrate_or_frame_rate() {
-        let zero_bitrate = EncoderConfig {
-            bitrate_bps: 0,
-            ..EncoderConfig::default()
-        };
-        assert!(Encoder::with_config(16, 16, zero_bitrate).is_err());
+    fn rejects_a_zero_frame_rate() {
         let zero_rate = EncoderConfig {
             frame_rate: 0,
             ..EncoderConfig::default()
