@@ -10,7 +10,7 @@ use crate::{Error, Frame};
 
 const CANDIDATES: [&str; 2] = ["h264_vaapi", "h264_nvenc"];
 
-pub(crate) struct HardwareEncoder {
+pub(crate) struct FfmpegEncoder {
     name: &'static str,
     encoder: encoder::Video,
     scaler: scaling::Context,
@@ -22,15 +22,42 @@ pub(crate) struct HardwareEncoder {
 }
 
 // SAFETY: the FFmpeg contexts inside have no thread affinity, and `&mut self` means only one thread uses them at a time.
-unsafe impl Send for HardwareEncoder {}
+unsafe impl Send for FfmpegEncoder {}
 
-impl HardwareEncoder {
-    pub(crate) fn open_any(width: u32, height: u32, config: EncoderConfig) -> Option<Self> {
-        ffmpeg::init().ok()?;
+fn forced_name(preference: Option<&str>) -> Option<&'static str> {
+    match preference {
+        Some("vaapi") => Some("h264_vaapi"),
+        Some("nvenc") => Some("h264_nvenc"),
+        _ => None,
+    }
+}
+
+impl FfmpegEncoder {
+    pub(crate) fn open_any(
+        width: u32,
+        height: u32,
+        config: EncoderConfig,
+        preference: Option<&str>,
+    ) -> Result<Option<Self>, Error> {
+        let forced = forced_name(preference);
+        if let Err(error) = ffmpeg::init() {
+            return if forced.is_some() {
+                Err(ffmpeg_error(error))
+            } else {
+                Ok(None)
+            };
+        }
         ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Fatal);
-        CANDIDATES
-            .into_iter()
-            .find_map(|name| Self::open(name, width, height, config).ok())
+
+        let names = forced.map_or_else(|| CANDIDATES.to_vec(), |name| vec![name]);
+        for name in names {
+            match Self::open(name, width, height, config) {
+                Ok(encoder) => return Ok(Some(encoder)),
+                Err(error) if forced.is_some() => return Err(error),
+                Err(_) => {}
+            }
+        }
+        Ok(None)
     }
 
     fn open(
@@ -233,4 +260,22 @@ fn ffmpeg_profile(profile: H264Profile) -> Option<&'static str> {
 
 fn ffmpeg_error(error: ffmpeg::Error) -> Error {
     Error::Encode(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_named_encoder_is_the_only_candidate() {
+        assert_eq!(forced_name(Some("vaapi")), Some("h264_vaapi"));
+        assert_eq!(forced_name(Some("nvenc")), Some("h264_nvenc"));
+    }
+
+    #[test]
+    fn no_or_an_unknown_name_leaves_the_choice_to_the_library() {
+        assert_eq!(forced_name(None), None);
+        assert_eq!(forced_name(Some("openh264")), None);
+        assert_eq!(forced_name(Some("nonsense")), None);
+    }
 }

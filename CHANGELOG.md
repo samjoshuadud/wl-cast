@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The `WL_CAST_ENCODER` environment variable forces an encoder: `vaapi`, `nvenc` or `openh264`. A forced encoder that cannot open is an error, not a silent fallback.
+
 ## [0.2.3] - 2026-10-25
 
 ### Added

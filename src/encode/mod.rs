@@ -8,6 +8,7 @@ use crate::{Error, Frame};
 
 const DEFAULT_BITRATE_BPS: u32 = 8_000_000;
 const DEFAULT_FRAME_RATE: u32 = 60;
+const ENCODER_ENV: &str = "WL_CAST_ENCODER";
 
 /// Bitrate, frame rate and H.264 profile for an [`Encoder`].
 ///
@@ -67,6 +68,7 @@ pub enum H264Profile {
 ///
 /// With the `ffmpeg` feature it tries VA-API (Intel, AMD), then NVENC (Nvidia).
 /// Otherwise, or if no GPU encoder works, it falls back to `OpenH264` in software.
+/// Set the `WL_CAST_ENCODER` environment variable to `vaapi`, `nvenc` or `openh264` to force one.
 pub struct Encoder {
     backend: Backend,
     width: u32,
@@ -75,7 +77,7 @@ pub struct Encoder {
 
 enum Backend {
     #[cfg(feature = "ffmpeg")]
-    Hardware(ffmpeg::HardwareEncoder),
+    Ffmpeg(ffmpeg::FfmpegEncoder),
     Software(Box<openh264::SoftwareEncoder>),
 }
 
@@ -97,8 +99,20 @@ impl Encoder {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Encode`] if the bitrate or frame rate is 0, or if no encoder can be opened.
+    /// Returns [`Error::Encode`] if the bitrate or frame rate is 0, or if no encoder can be opened,
+    /// including the one named by `WL_CAST_ENCODER`. Returns [`Error::Unsupported`] if that name needs
+    /// the `ffmpeg` feature and it is off.
     pub fn with_config(width: u32, height: u32, config: EncoderConfig) -> Result<Self, Error> {
+        let preference = std::env::var(ENCODER_ENV).ok();
+        Self::open(width, height, config, preference.as_deref())
+    }
+
+    fn open(
+        width: u32,
+        height: u32,
+        config: EncoderConfig,
+        preference: Option<&str>,
+    ) -> Result<Self, Error> {
         if config.bitrate_bps == 0 {
             return Err(Error::Encode("bitrate must be at least 1".into()));
         }
@@ -106,18 +120,8 @@ impl Encoder {
             return Err(Error::Encode("frame rate must be at least 1".into()));
         }
 
-        #[cfg(feature = "ffmpeg")]
-        if let Some(encoder) = ffmpeg::HardwareEncoder::open_any(even(width), even(height), config)
-        {
-            return Ok(Self {
-                backend: Backend::Hardware(encoder),
-                width,
-                height,
-            });
-        }
-
         Ok(Self {
-            backend: Backend::Software(Box::new(openh264::SoftwareEncoder::new(config)?)),
+            backend: open_backend(width, height, config, preference)?,
             width,
             height,
         })
@@ -127,7 +131,7 @@ impl Encoder {
     pub fn name(&self) -> &'static str {
         match &self.backend {
             #[cfg(feature = "ffmpeg")]
-            Backend::Hardware(encoder) => encoder.name(),
+            Backend::Ffmpeg(encoder) => encoder.name(),
             Backend::Software(_) => "openh264",
         }
     }
@@ -136,7 +140,7 @@ impl Encoder {
     pub fn request_keyframe(&mut self) {
         match &mut self.backend {
             #[cfg(feature = "ffmpeg")]
-            Backend::Hardware(encoder) => encoder.request_keyframe(),
+            Backend::Ffmpeg(encoder) => encoder.request_keyframe(),
             Backend::Software(encoder) => encoder.request_keyframe(),
         }
     }
@@ -166,10 +170,43 @@ impl Encoder {
 
         match &mut self.backend {
             #[cfg(feature = "ffmpeg")]
-            Backend::Hardware(encoder) => encoder.encode(frame),
+            Backend::Ffmpeg(encoder) => encoder.encode(frame),
             Backend::Software(encoder) => encoder.encode(frame),
         }
     }
+}
+
+#[cfg(feature = "ffmpeg")]
+fn open_backend(
+    width: u32,
+    height: u32,
+    config: EncoderConfig,
+    preference: Option<&str>,
+) -> Result<Backend, Error> {
+    if preference != Some("openh264")
+        && let Some(encoder) =
+            ffmpeg::FfmpegEncoder::open_any(even(width), even(height), config, preference)?
+    {
+        return Ok(Backend::Ffmpeg(encoder));
+    }
+    Ok(Backend::Software(Box::new(openh264::SoftwareEncoder::new(
+        config,
+    )?)))
+}
+
+#[cfg(not(feature = "ffmpeg"))]
+fn open_backend(
+    _width: u32,
+    _height: u32,
+    config: EncoderConfig,
+    preference: Option<&str>,
+) -> Result<Backend, Error> {
+    if matches!(preference, Some("vaapi" | "nvenc")) {
+        return Err(Error::Unsupported("the ffmpeg feature"));
+    }
+    Ok(Backend::Software(Box::new(openh264::SoftwareEncoder::new(
+        config,
+    )?)))
 }
 
 fn even(size: u32) -> u32 {
@@ -242,6 +279,26 @@ mod tests {
             );
             assert!(!encoder.encode(&frame).unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn openh264_can_be_forced() {
+        let encoder = Encoder::open(16, 16, EncoderConfig::default(), Some("openh264")).unwrap();
+        assert_eq!(encoder.name(), "openh264");
+    }
+
+    #[cfg(not(feature = "ffmpeg"))]
+    #[test]
+    fn a_gpu_encoder_without_the_ffmpeg_feature_is_an_error() {
+        for name in ["vaapi", "nvenc"] {
+            let result = Encoder::open(16, 16, EncoderConfig::default(), Some(name));
+            assert!(matches!(result, Err(Error::Unsupported(_))));
+        }
+    }
+
+    #[test]
+    fn an_unknown_name_means_automatic_choice() {
+        assert!(Encoder::open(16, 16, EncoderConfig::default(), Some("nonsense")).is_ok());
     }
 
     #[test]
