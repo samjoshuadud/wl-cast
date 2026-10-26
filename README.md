@@ -28,7 +28,7 @@ let h264 = encoder.encode(&frame)?;
 
 `Capture::new(0)` is the first monitor. `Capture::by_name` uses the name the compositor reports, such as `eDP-1`. `Input` moves the mouse and presses keys. `RtpSender` and `RemoteSession` send the video out. The `examples` folder has a runnable demo for each.
 
-`Encoder::new` uses 60 frames per second and chooses the bitrate from the frame size: about 8 Mbit/s at 1080p, more for larger screens. `Encoder::with_config` changes the bitrate, frame rate and H.264 profile. A WebRTC session reads the same settings from `SessionConfig.encoder`.
+`Encoder::new` uses 60 frames per second and chooses the bitrate from the frame size: about 8 Mbit/s at 1080p, more for larger screens. `Encoder::with_config` changes the bitrate, frame rate and H.264 profile. A WebRTC session reads the same settings from `SessionConfig.encoder`. In a WebRTC session the bitrate also follows the network: it is the ceiling, and the session goes lower when the viewer's connection is slow.
 
 ## Compositor support
 
@@ -112,6 +112,7 @@ The viewer sends one text line per event on a data channel named `input`.
 - One viewer at a time, and the session ends when the viewer leaves or does not connect within 30 seconds.
 - Unplugging a monitor during a session is not handled. A resize or rotation is followed.
 - No audio, clipboard or multi-monitor switching.
+- The bitrate drop on a slow network was tested only on a fast LAN, where the estimate rose as expected. It has not been tested under real packet loss or a throttled link.
 - GPU encoding with NVENC (Nvidia) is untested. VA-API (Intel, AMD) is tested on AMD.
 - OpenH264, used when FFmpeg has no x264, is slow on busy full-screen video (about 10 frames per second at 1080p). An odd width or height is rounded up by one pixel.
 - Internet access is direct only: port forwarding or a VPN. There is no relay server.

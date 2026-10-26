@@ -4,7 +4,7 @@ use std::{
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     },
     thread,
@@ -13,6 +13,7 @@ use std::{
 
 use str0m::{
     Candidate, Event, IceConnectionState, Input as RtcInput, Output, Rtc,
+    bwe::{Bitrate, BweKind},
     change::SdpOffer,
     format::Codec,
     media::{MediaKind, MediaTime, Mid},
@@ -21,9 +22,15 @@ use str0m::{
 
 use crate::{
     Capture, Encoder, EncoderConfig, Error, Frame, Input, MouseButton, PressState, StopHandle,
+    encode::{MAX_AUTOMATIC_BITRATE_BPS, MIN_AUTOMATIC_BITRATE_BPS, resolved},
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const START_ESTIMATE: Bitrate = Bitrate::mbps(10);
+const NO_ESTIMATE: u32 = 0;
+const ESTIMATE_SHARE_PERCENT: u64 = 85;
+const MIN_CHANGE_PERCENT: u64 = 25;
+const MIN_CHANGE_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Settings for a [`RemoteSession`].
 ///
@@ -98,7 +105,11 @@ impl RemoteSession {
     /// Returns [`Error::WebRtc`] if the offer is invalid, or [`Error::Io`] if the UDP port cannot be bound.
     pub fn accept(offer: &str, config: &SessionConfig) -> Result<(Self, String), Error> {
         let offer = SdpOffer::from_sdp_string(offer).map_err(webrtc_error)?;
-        let mut rtc = Rtc::builder().build(Instant::now());
+        let mut rtc = Rtc::builder()
+            .enable_bwe(Some(START_ESTIMATE))
+            .build(Instant::now());
+        rtc.bwe()
+            .set_desired_bitrate(desired_bitrate(config.encoder));
 
         let socket = UdpSocket::bind((config.local_ip, config.udp_port))?;
         let local = socket.local_addr()?;
@@ -152,9 +163,11 @@ impl RemoteSession {
     /// or the capture or encoder error if either fails. Stopping the handle returns [`Ok`].
     pub fn run(mut self) -> Result<(), Error> {
         let keyframe = Arc::new(AtomicBool::new(true));
+        let estimate = Arc::new(AtomicU32::new(NO_ESTIMATE));
         let video = start_video(
             self.output_index,
             keyframe.clone(),
+            estimate.clone(),
             self.encoder,
             self.stop.clone(),
         );
@@ -203,6 +216,14 @@ impl RemoteSession {
                             video_mid = Some(media.mid);
                         }
                         Event::KeyframeRequest(_) => keyframe.store(true, Ordering::Relaxed),
+                        Event::EgressBitrateEstimate(
+                            BweKind::Twcc {
+                                estimate: bitrate, ..
+                            }
+                            | BweKind::Remb {
+                                estimate: bitrate, ..
+                            },
+                        ) => estimate.store(estimate_bps(bitrate), Ordering::Relaxed),
                         Event::ChannelData(data) => {
                             let event = std::str::from_utf8(&data.data)
                                 .ok()
@@ -261,6 +282,7 @@ impl RemoteSession {
 fn start_video(
     output_index: usize,
     keyframe: Arc<AtomicBool>,
+    estimate: Arc<AtomicU32>,
     encoder: EncoderConfig,
     stop: StopHandle,
 ) -> Receiver<Result<Encoded, Error>> {
@@ -269,7 +291,7 @@ fn start_video(
 
     thread::spawn(move || capture_loop(output_index, frame_tx, stop));
     thread::spawn(move || {
-        if let Err(e) = encode_loop(&frame_rx, &encoded_tx, &keyframe, encoder) {
+        if let Err(e) = encode_loop(&frame_rx, &encoded_tx, &keyframe, &estimate, encoder) {
             let _ = encoded_tx.send(Err(e));
         }
     });
@@ -306,10 +328,13 @@ fn encode_loop(
     frames: &Receiver<Result<Frame, Error>>,
     encoded: &SyncSender<Result<Encoded, Error>>,
     keyframe: &AtomicBool,
+    estimate: &AtomicU32,
     encoder_config: EncoderConfig,
 ) -> Result<(), Error> {
     let mut encoder: Option<Encoder> = None;
     let mut encoded_size = None;
+    let mut encoded_bitrate = 0;
+    let mut opened_at = Instant::now();
     let mut last_frame: Option<Frame> = None;
 
     loop {
@@ -324,13 +349,22 @@ fn encode_loop(
         };
 
         let size = (frame.width, frame.height);
-        if encoder_is_stale(encoded_size, size) {
+        let ceiling = resolved(encoder_config, frame.width, frame.height).bitrate_bps;
+        let wanted = wanted_bitrate(ceiling, estimate.load(Ordering::Relaxed));
+        if encoder_is_stale(encoded_size, size)
+            || bitrate_change_due(encoded_bitrate, wanted, ceiling, opened_at.elapsed())
+        {
             encoder = Some(Encoder::with_config(
                 frame.width,
                 frame.height,
-                encoder_config,
+                EncoderConfig {
+                    bitrate_bps: wanted,
+                    ..encoder_config
+                },
             )?);
             encoded_size = Some(size);
+            encoded_bitrate = wanted;
+            opened_at = Instant::now();
             keyframe.store(true, Ordering::Relaxed);
         }
         let Some(encoder) = encoder.as_mut() else {
@@ -458,6 +492,35 @@ fn encoder_is_stale(current: Option<(u32, u32)>, size: (u32, u32)) -> bool {
     current != Some(size)
 }
 
+fn desired_bitrate(config: EncoderConfig) -> Bitrate {
+    match config.bitrate_bps {
+        0 => Bitrate::bps(u64::from(MAX_AUTOMATIC_BITRATE_BPS)),
+        bitrate_bps => Bitrate::bps(u64::from(bitrate_bps)),
+    }
+}
+
+fn estimate_bps(estimate: Bitrate) -> u32 {
+    u32::try_from(estimate.as_u64()).unwrap_or(u32::MAX)
+}
+
+fn wanted_bitrate(ceiling: u32, estimate_bps: u32) -> u32 {
+    if estimate_bps == NO_ESTIMATE {
+        return ceiling;
+    }
+    let share = u64::from(estimate_bps) * ESTIMATE_SHARE_PERCENT / 100;
+    let floor = MIN_AUTOMATIC_BITRATE_BPS.min(ceiling);
+    u32::try_from(share)
+        .unwrap_or(u32::MAX)
+        .clamp(floor, ceiling)
+}
+
+fn bitrate_change_due(current: u32, wanted: u32, ceiling: u32, since_change: Duration) -> bool {
+    let difference = u64::from(current.abs_diff(wanted));
+    let big_enough = difference * 100 >= u64::from(current) * MIN_CHANGE_PERCENT;
+    let reaches_ceiling = wanted == ceiling && current != ceiling;
+    since_change >= MIN_CHANGE_INTERVAL && (big_enough || reaches_ceiling)
+}
+
 fn connect_timed_out(connected: bool, waited: Duration) -> bool {
     !connected && waited > CONNECT_TIMEOUT
 }
@@ -516,6 +579,71 @@ mod tests {
                 code: 30,
                 press: PressState::Released
             })
+        );
+    }
+
+    #[test]
+    fn wanted_bitrate_follows_the_estimate_up_to_the_ceiling() {
+        assert_eq!(wanted_bitrate(8_000_000, NO_ESTIMATE), 8_000_000);
+        assert_eq!(wanted_bitrate(8_000_000, 4_000_000), 3_400_000);
+        assert_eq!(wanted_bitrate(8_000_000, 50_000_000), 8_000_000);
+    }
+
+    #[test]
+    fn wanted_bitrate_never_drops_below_the_floor() {
+        assert_eq!(
+            wanted_bitrate(8_000_000, 200_000),
+            MIN_AUTOMATIC_BITRATE_BPS
+        );
+        assert_eq!(wanted_bitrate(500_000, 200_000), 500_000);
+    }
+
+    #[test]
+    fn small_bitrate_changes_are_ignored() {
+        let later = MIN_CHANGE_INTERVAL;
+        assert!(!bitrate_change_due(8_000_000, 7_000_000, 9_000_000, later));
+        assert!(bitrate_change_due(8_000_000, 6_000_000, 9_000_000, later));
+        assert!(bitrate_change_due(4_000_000, 8_000_000, 9_000_000, later));
+    }
+
+    #[test]
+    fn a_small_step_up_to_the_ceiling_is_taken() {
+        let ceiling = 8_087_040;
+        assert!(bitrate_change_due(
+            6_800_000,
+            ceiling,
+            ceiling,
+            MIN_CHANGE_INTERVAL
+        ));
+        assert!(!bitrate_change_due(
+            ceiling,
+            ceiling,
+            ceiling,
+            MIN_CHANGE_INTERVAL
+        ));
+    }
+
+    #[test]
+    fn bitrate_changes_wait_for_the_interval() {
+        let early = MIN_CHANGE_INTERVAL - Duration::from_millis(1);
+        assert!(!bitrate_change_due(8_000_000, 2_000_000, 9_000_000, early));
+        assert!(bitrate_change_due(
+            8_000_000,
+            2_000_000,
+            9_000_000,
+            MIN_CHANGE_INTERVAL
+        ));
+    }
+
+    #[test]
+    fn desired_bitrate_uses_the_configured_rate_or_the_maximum() {
+        assert_eq!(
+            desired_bitrate(EncoderConfig::new(3_000_000, 60)).as_u64(),
+            3_000_000
+        );
+        assert_eq!(
+            desired_bitrate(EncoderConfig::default()).as_u64(),
+            u64::from(MAX_AUTOMATIC_BITRATE_BPS)
         );
     }
 

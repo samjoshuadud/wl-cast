@@ -10,8 +10,8 @@ use crate::{Error, Frame};
 const AUTOMATIC_BITRATE: u32 = 0;
 const DEFAULT_FRAME_RATE: u32 = 60;
 const MILLI_BITS_PER_PIXEL: u64 = 65;
-const MIN_AUTOMATIC_BITRATE_BPS: u64 = 1_000_000;
-const MAX_AUTOMATIC_BITRATE_BPS: u64 = 40_000_000;
+pub(crate) const MIN_AUTOMATIC_BITRATE_BPS: u32 = 1_000_000;
+pub(crate) const MAX_AUTOMATIC_BITRATE_BPS: u32 = 40_000_000;
 const ENCODER_ENV: &str = "WL_CAST_ENCODER";
 
 /// Bitrate, frame rate and H.264 profile for an [`Encoder`].
@@ -184,7 +184,7 @@ impl Encoder {
     }
 }
 
-fn resolved(config: EncoderConfig, width: u32, height: u32) -> EncoderConfig {
+pub(crate) fn resolved(config: EncoderConfig, width: u32, height: u32) -> EncoderConfig {
     if config.bitrate_bps != AUTOMATIC_BITRATE {
         return config;
     }
@@ -196,8 +196,10 @@ fn resolved(config: EncoderConfig, width: u32, height: u32) -> EncoderConfig {
 
 fn automatic_bitrate_bps(width: u32, height: u32, frame_rate: u32) -> u32 {
     let pixel_rate = u64::from(width) * u64::from(height) * u64::from(frame_rate);
-    let bitrate = (pixel_rate * MILLI_BITS_PER_PIXEL / 1000)
-        .clamp(MIN_AUTOMATIC_BITRATE_BPS, MAX_AUTOMATIC_BITRATE_BPS);
+    let bitrate = (pixel_rate * MILLI_BITS_PER_PIXEL / 1000).clamp(
+        u64::from(MIN_AUTOMATIC_BITRATE_BPS),
+        u64::from(MAX_AUTOMATIC_BITRATE_BPS),
+    );
     u32::try_from(bitrate).unwrap_or(u32::MAX)
 }
 
