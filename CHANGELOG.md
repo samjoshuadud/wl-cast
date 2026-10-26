@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The `bench_encode` example runs every available encoder on the same test frames and prints speed, CPU use, bitrate, picture quality (PSNR) and color accuracy. Run it with `cargo run --release --features ffmpeg --example bench_encode`.
 - A `bitrate_bps` of 0 chooses the bitrate from the frame size and frame rate, at about 0.065 bits per pixel per frame, between 1 and 40 Mbit/s. This is now the default for `Encoder::new` and `EncoderConfig::default`. 1080p at 60 frames per second stays at about 8 Mbit/s, larger screens get more. A WebRTC session follows the size after a resize.
 - With the `ffmpeg` feature, software encoding uses x264 when the system FFmpeg has it, before falling back to OpenH264. x264 is several times faster. Its speed setting follows the pixel rate.
 - The `WL_CAST_ENCODER` environment variable forces an encoder: `vaapi`, `nvenc`, `x264` or `openh264`. A forced encoder that cannot open is an error, not a silent fallback.
